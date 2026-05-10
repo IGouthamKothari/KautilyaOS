@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from telegram import Update
 
 from chanakya.config import HOST, PORT, TELEGRAM_BOT_TOKEN, WEBHOOK_URL
@@ -122,9 +124,37 @@ def create_fastapi_app() -> FastAPI:
     app = FastAPI(title="Chanakya Bot", version="1.0.0", lifespan=lifespan)
     app.include_router(twilio_router)
 
+    # Static UI
+    static_path = os.path.join(os.path.dirname(__file__), "static")
+    if os.path.exists(static_path):
+        app.mount("/static", StaticFiles(directory=static_path), name="static")
+
+    @app.get("/")
+    async def index():
+        """Serve the Dharma Dashboard."""
+        return FileResponse(os.path.join(static_path, "index.html"))
+
     @app.get("/health")
     async def health():
         return {"status": "ok", "service": "chanakya-bot"}
+
+    @app.post("/chat")
+    async def web_chat(request: Request):
+        """Handle chat from the web dashboard."""
+        from chanakya.bot.telegram_bot import _process_message_inner
+        from chanakya.db.mongo import users
+        
+        data = await request.json()
+        text = data.get("message")
+        
+        # Get the primary user (assumed to be you)
+        user = users.find_one({"active": True})
+        if not user:
+            return {"response": "No active user found in Dharma database."}
+            
+        # Process through the main agent engine
+        response_text = await _process_message_inner(user, text, channel="web")
+        return {"response": response_text}
 
     @app.post("/telegram")
     async def telegram_webhook(request: Request) -> Response:

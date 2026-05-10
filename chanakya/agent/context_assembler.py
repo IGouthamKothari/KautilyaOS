@@ -378,6 +378,7 @@ def _build_tier1(user: dict) -> dict:
         },
         "today_date": today_date,
         "day_of_week": day_of_week,
+        "current_time": now_local.strftime("%I:%M %p"), # High-precision local time
         "timezone": user.get("timezone", "Asia/Kolkata"),
         # Rolling cross-channel conversation summary — updated after every text/call turn.
         # Gives the LLM awareness of what was discussed recently regardless of channel.
