@@ -239,20 +239,27 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def perform_startup_audit(application: Application = None) -> None:
-    """Proactive system check on boot. Waits 10s for server stability."""
-    await _asyncio.sleep(10)
-    user = users.find_one({"active": True})
-    if not user or not user.get("telegram_id"):
-        return
-
-    telegram_id = user["telegram_id"]
-    logger.info("🚀 Starting Guru's Awakening Audit for %s", telegram_id)
-    
+    """Proactive system check on boot. Waits 15s for server stability."""
+    await _asyncio.sleep(15)
     try:
-        response_text = await generic_process_message(user, "SYSTEM: Perform startup diagnostic and temporal check.", channel="SYSTEM")
+        user = users.find_one({"active": True})
+        if not user or not user.get("telegram_id"):
+            return
+
+        telegram_id = user["telegram_id"]
+        logger.info("🚀 Starting Guru's Awakening Audit for %s", telegram_id)
+        
+        # Increased timeout for startup LLM call
+        response_text = await _asyncio.wait_for(
+            generic_process_message(user, "SYSTEM: Perform startup diagnostic and temporal check.", channel="SYSTEM"),
+            timeout=60.0
+        )
+        
         if application and response_text:
             await application.bot.send_message(chat_id=telegram_id, text=_md_to_html(response_text), parse_mode="HTML")
             logger.info("✅ Proactive startup alert sent.")
+    except _asyncio.TimeoutError:
+        logger.warning("Startup audit timed out. Chanakya will catch up in the next cycle.")
     except Exception as exc:
         logger.error("Startup audit failed: %s", exc)
 
