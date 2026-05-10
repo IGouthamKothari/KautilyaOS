@@ -239,20 +239,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def perform_startup_audit(application: Application = None) -> None:
-    """Proactive system check on boot. Waits 15s for server stability."""
-    await _asyncio.sleep(15)
+    """Proactive system check on boot. Waits 30s for server stability."""
+    await _asyncio.sleep(30)
     try:
         user = users.find_one({"active": True})
         if not user or not user.get("telegram_id"):
             return
 
         telegram_id = user["telegram_id"]
-        logger.info("🚀 Starting Guru's Awakening Audit for %s", telegram_id)
+        logger.info("🚀 Starting Guru's Awakening LITE Audit for %s", telegram_id)
         
-        # Increased timeout for startup LLM call
+        # LITE prompt: Skip heavy tools during boot spike
+        lite_input = "SYSTEM: Perform a LITE startup temporal check. Do NOT call tools. Just check the time and scold if needed."
+        
         response_text = await _asyncio.wait_for(
-            generic_process_message(user, "SYSTEM: Perform startup diagnostic and temporal check.", channel="SYSTEM"),
-            timeout=60.0
+            generic_process_message(user, lite_input, channel="SYSTEM"),
+            timeout=45.0
         )
         
         if application and response_text:
