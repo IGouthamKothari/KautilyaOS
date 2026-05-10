@@ -133,13 +133,13 @@ def create_fastapi_app() -> FastAPI:
     if os.path.exists(static_path):
         app.mount("/static", StaticFiles(directory=static_path), name="static")
 
-    @app.get("/", methods=["GET", "HEAD"])
+    @app.api_route("/", methods=["GET", "HEAD"])
     async def index():
         """Serve the Dharma Dashboard."""
         return FileResponse(os.path.join(static_path, "index.html"))
 
-    @app.get("/health", methods=["GET", "HEAD"])
-    @app.get("/healthz", methods=["GET", "HEAD"])
+    @app.api_route("/health", methods=["GET", "HEAD"])
+    @app.api_route("/healthz", methods=["GET", "HEAD"])
     async def health():
         return {"status": "ok", "service": "chanakya-bot"}
 
