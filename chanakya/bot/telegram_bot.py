@@ -239,7 +239,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def perform_startup_audit(application: Application = None) -> None:
-    """Proactive system check on boot."""
+    """Proactive system check on boot. Waits 10s for server stability."""
+    await _asyncio.sleep(10)
     user = users.find_one({"active": True})
     if not user or not user.get("telegram_id"):
         return

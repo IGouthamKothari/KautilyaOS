@@ -25,16 +25,16 @@ def _write_audit(user_id: ObjectId, tool_name: str, tool_input: dict, tool_outpu
 
 @tool
 def log_ritual(user_id: str, category: str, value: float | int | str, note: str = "") -> str:
-    """Log a health or daily ritual (Sleep, Mood, Energy, Water, etc.).
+    """Log a health or daily ritual. MANDATORY: You MUST specify a category.
     
-    Categories:
-    - SLEEP (hours)
-    - MOOD (1-10)
-    - ENERGY (1-10)
-    - WATER (liters)
-    - MEDITATION (minutes)
+    Allowed Categories:
+    - SLEEP: Use for hours of rest (e.g., value=7.5)
+    - MOOD: Scale 1-10 (e.g., value=8)
+    - ENERGY: Scale 1-10 (e.g., value=7)
+    - WATER: Liters consumed (e.g., value=2.5)
+    - MEDITATION: Minutes spent (e.g., value=15)
     
-    Use when the user shares health data or during Morning/EOD check-ins.
+    Use this when the user reports health data, sleep quality, or mental state.
     """
     try:
         uid = ObjectId(user_id)
