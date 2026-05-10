@@ -138,7 +138,8 @@ def create_fastapi_app() -> FastAPI:
         """Serve the Dharma Dashboard."""
         return FileResponse(os.path.join(static_path, "index.html"))
 
-    @app.get("/health")
+    @app.get("/health", methods=["GET", "HEAD"])
+    @app.get("/healthz", methods=["GET", "HEAD"])
     async def health():
         return {"status": "ok", "service": "chanakya-bot"}
 
