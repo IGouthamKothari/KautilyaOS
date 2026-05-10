@@ -48,7 +48,7 @@ def _make_llm(model: str = MODEL) -> ChatOpenAI:
         api_key=OPENAI_API_KEY,
         model=model,
         temperature=0.7,
-        model_kwargs={"max_completion_tokens": 2048},
+        max_completion_tokens=2048,
     )
 
 

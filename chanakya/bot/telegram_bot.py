@@ -447,3 +447,56 @@ def build_application() -> Application:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_error_handler(error_handler)
     return app
+
+
+async def perform_startup_audit(application: Application = None) -> None:
+    """Proactive system check on boot. Scolds the user if they are awake at an unholy hour."""
+    from chanakya.db.mongo import users
+    from chanakya.bot.telegram_bot import invoke_agent
+    
+    # 1. Find the primary active user
+    user = users.find_one({"active": True})
+    if not user:
+        logger.info("Startup Audit: No active user found. Skipping.")
+        return
+        
+    telegram_id = user.get("telegram_id")
+    if not telegram_id:
+        logger.info("Startup Audit: Active user has no telegram_id. Skipping.")
+        return
+
+    logger.info("🚀 Starting Guru's Awakening Audit for user %s (%s)", user.get("name"), telegram_id)
+    
+    # 2. Invoke Agent with a system trigger
+    try:
+        # We use a dummy input that triggers the agent's temporal awareness rules
+        llm_decision = await invoke_agent(
+            user=user,
+            raw_input="SYSTEM: Perform startup diagnostic and temporal check.",
+            interaction_type="CHECKPOINT"
+        )
+        
+        if llm_decision and llm_decision.response_text:
+            # 3. If the agent decided to say something (likely a warning about the time), push it.
+            if application:
+                bot = application.bot
+                try:
+                    # Clean the response text (remove markdown for HTML)
+                    from chanakya.bot.telegram_bot import _md_to_html
+                    html_text = _md_to_html(llm_decision.response_text)
+                    
+                    await bot.send_message(
+                        chat_id=telegram_id,
+                        text=html_text,
+                        parse_mode="HTML"
+                    )
+                    logger.info("✅ Proactive startup alert sent to %s", telegram_id)
+                    
+                    # Update context so he remembers this scolding
+                    from chanakya.agent.context_assembler import update_conversation_context
+                    await update_conversation_context(user, role="assistant", content=llm_decision.response_text, channel="text")
+                    
+                except Exception as e:
+                    logger.error("Failed to send startup alert: %s", e)
+    except Exception as exc:
+        logger.error("Startup audit failed: %s", exc)

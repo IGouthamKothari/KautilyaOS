@@ -97,6 +97,10 @@ async def lifespan(app: FastAPI):
     # Auto-seed schedule for any active users with no checkpoints
     _auto_seed_schedules()
 
+    # Proactive Startup Audit: Check user status immediately on boot
+    from chanakya.bot.telegram_bot import perform_startup_audit
+    asyncio.create_task(perform_startup_audit(application))
+
     logger.info("Chanakya is watching. Webhook: %s", webhook_url)
     
     yield
