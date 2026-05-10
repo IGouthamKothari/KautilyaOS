@@ -133,7 +133,7 @@ def create_fastapi_app() -> FastAPI:
     if os.path.exists(static_path):
         app.mount("/static", StaticFiles(directory=static_path), name="static")
 
-    @app.get("/")
+    @app.get("/", methods=["GET", "HEAD"])
     async def index():
         """Serve the Dharma Dashboard."""
         return FileResponse(os.path.join(static_path, "index.html"))
