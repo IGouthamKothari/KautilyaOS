@@ -151,12 +151,16 @@ def create_fastapi_app() -> FastAPI:
 
     return app
 
+# ---------------------------------------------------------------------------
+# Module-level app instance (Req 25.1)
+# ---------------------------------------------------------------------------
+app = create_fastapi_app()
+
 
 def main() -> None:
     """Main entrypoint: start Uvicorn synchronously on the main thread."""
-    fastapi_app = create_fastapi_app()
     logger.info("Starting Uvicorn on %s:%s", HOST, PORT)
-    uvicorn.run(fastapi_app, host=HOST, port=PORT, log_level="info")
+    uvicorn.run("chanakya.main:app", host=HOST, port=PORT, log_level="info")
 
 
 if __name__ == "__main__":
