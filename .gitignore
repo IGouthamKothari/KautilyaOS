@@ -1,0 +1,27 @@
+# Environment Variables (CRITICAL)
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.hypothesis/
+.kiro/
+.venv/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project Specific
+scratch/
+chanakya/data/
+*.log

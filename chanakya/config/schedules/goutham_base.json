@@ -1,0 +1,433 @@
+{
+  "user_id": "goutham",
+  "version": "1.2",
+  "timezone": "Asia/Kolkata",
+  "default_mode": "NORMAL",
+  "weekly_goals": {
+    "leetcode_problems": 7,
+    "gym_sessions": 5,
+    "daily_steps": 8000,
+    "dsa_study_hours": 7,
+    "system_design_hours": 3
+  },
+  "base_schedule": {
+    "monday": [
+      {
+        "time": "06:00",
+        "activity": "WAKE_UP",
+        "priority": "CRITICAL",
+        "duration_min": 5,
+        "checkpoint_type": "CALL",
+        "notes": "Wake-up call. Confirm you are up.",
+        "display_name": "Wake Up",
+        "description": "Start the day on time. Missing this sets a bad tone for everything that follows."
+      },
+      {
+        "time": "06:15",
+        "activity": "GYM",
+        "priority": "HIGH",
+        "duration_min": 75,
+        "checkpoint_type": "IMAGE_DEMAND",
+        "notes": "Pre-workout photo proof required",
+        "display_name": "Gym Session",
+        "description": "Get your workout in early to boost energy and focus for the day ahead."
+      },
+      {
+        "time": "07:30",
+        "activity": "POST_GYM_ROUTINE",
+        "priority": "MEDIUM",
+        "duration_min": 30,
+        "checkpoint_type": null,
+        "notes": "Shower, breakfast, get ready",
+        "display_name": "Post Gym Routine",
+        "description": "Refresh yourself with a shower and a healthy breakfast to kickstart your metabolism."
+      },
+      {
+        "time": "08:00",
+        "activity": "PERSONAL_TIME",
+        "priority": "LOW",
+        "duration_min": 60,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "Time-boxed. Back to desk by 09:00.",
+        "display_name": "Personal Time",
+        "description": "Use this hour for personal tasks or relaxation, but be back at your desk by 9:00."
+      },
+      {
+        "time": "09:00",
+        "activity": "MORNING_TODO_DELIVERY",
+        "priority": "HIGH",
+        "duration_min": 5,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "AI generates todo from next_day_plan",
+        "display_name": "Morning To-Do Delivery",
+        "description": "Receive your AI-generated to-do list to stay organized and focused for the day."
+      },
+      {
+        "time": "09:05",
+        "activity": "OFFICE_WORK",
+        "priority": "HIGH",
+        "duration_min": 175,
+        "checkpoint_type": null,
+        "notes": "Deep work block 1",
+        "display_name": "Deep Work",
+        "description": "Engage in focused work to tackle your most important tasks without distractions."
+      },
+      {
+        "time": "12:00",
+        "activity": "MIDDAY_CHECKPOINT",
+        "priority": "MEDIUM",
+        "duration_min": 5,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "Steps + food photo check",
+        "display_name": "Midday Checkpoint",
+        "description": "Quickly assess your progress and ensure you're staying on track with your goals."
+      },
+      {
+        "time": "13:00",
+        "activity": "LUNCH_BREAK",
+        "priority": "LOW",
+        "duration_min": 60,
+        "checkpoint_type": null,
+        "notes": "Eat clean. No Swiggy junk.",
+        "display_name": "Lunch Break",
+        "description": "Enjoy a clean meal to refuel your body and mind, avoiding unhealthy options."
+      },
+      {
+        "time": "14:00",
+        "activity": "OFFICE_WORK",
+        "priority": "HIGH",
+        "duration_min": 180,
+        "checkpoint_type": null,
+        "notes": "Deep work block 2",
+        "display_name": "Deep Work",
+        "description": "Engage in focused work to tackle your most important tasks without distractions."
+      },
+      {
+        "time": "17:00",
+        "activity": "LEETCODE_HOUR",
+        "priority": "CRITICAL",
+        "duration_min": 60,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "Must submit at least 1 problem",
+        "display_name": "LeetCode Hour",
+        "description": "Dedicate this time to solving at least one coding problem to sharpen your skills."
+      },
+      {
+        "time": "18:00",
+        "activity": "BOUNDARY_CHECK",
+        "priority": "HIGH",
+        "duration_min": 5,
+        "checkpoint_type": "TELEGRAM_VOICE",
+        "notes": "Pre-evening boundary reminder",
+        "display_name": "Boundary Check",
+        "description": "A quick reminder to transition from work mode to personal time effectively."
+      },
+      {
+        "time": "20:30",
+        "activity": "DINNER",
+        "priority": "LOW",
+        "duration_min": 30,
+        "checkpoint_type": null,
+        "notes": "Light dinner",
+        "display_name": "Dinner",
+        "description": "Have a light dinner to promote better digestion and restful sleep."
+      },
+      {
+        "time": "21:00",
+        "activity": "SYSTEM_DESIGN_OR_READING",
+        "priority": "HIGH",
+        "duration_min": 60,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "Alternate days: System Design / Reading",
+        "display_name": "System Design Study",
+        "description": "Alternate between studying system design and reading to expand your knowledge."
+      },
+      {
+        "time": "22:00",
+        "activity": "EOD_REPORT",
+        "priority": "HIGH",
+        "duration_min": 10,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "AI generates summary + next day plan",
+        "display_name": "End of Day Report",
+        "description": "Summarize your day and plan for tomorrow with the help of AI."
+      },
+      {
+        "time": "22:45",
+        "activity": "SLEEP_PROTOCOL",
+        "priority": "HIGH",
+        "duration_min": 5,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "Phone face down. Lights out.",
+        "display_name": "Sleep Protocol",
+        "description": "Prepare for sleep by putting your phone away and dimming the lights."
+      },
+      {
+        "time": "23:00",
+        "activity": "SLEEP",
+        "priority": "HIGH",
+        "duration_min": 420,
+        "checkpoint_type": null,
+        "notes": "7 hours sleep target",
+        "display_name": "Sleep",
+        "description": "Aim for a solid 7 hours of sleep to ensure you wake up refreshed and ready."
+      }
+    ],
+    "tuesday": "COPY_MONDAY",
+    "wednesday": "COPY_MONDAY",
+    "thursday": "COPY_MONDAY",
+    "friday": "COPY_MONDAY",
+    "saturday": [
+      {
+        "time": "07:00",
+        "activity": "WAKE_UP",
+        "priority": "HIGH",
+        "duration_min": 5,
+        "checkpoint_type": "CALL",
+        "notes": "Weekend wake-up call",
+        "display_name": "Wake Up",
+        "description": "Start the day on time. Missing this sets a bad tone for everything that follows."
+      },
+      {
+        "time": "07:30",
+        "activity": "GYM",
+        "priority": "HIGH",
+        "duration_min": 75,
+        "checkpoint_type": "IMAGE_DEMAND",
+        "notes": "Weekend gym session",
+        "display_name": "Gym Session",
+        "description": "Get your workout in early to boost energy and focus for the day ahead."
+      },
+      {
+        "time": "09:00",
+        "activity": "LEETCODE_DOUBLE",
+        "priority": "CRITICAL",
+        "duration_min": 120,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "2 problems minimum",
+        "display_name": "LeetCode Double",
+        "description": "Challenge yourself to solve at least two problems to enhance your coding skills."
+      },
+      {
+        "time": "11:00",
+        "activity": "SKILL_DEVELOPMENT",
+        "priority": "HIGH",
+        "duration_min": 120,
+        "checkpoint_type": null,
+        "notes": "System Design / New Tech / Project work",
+        "display_name": "Skill Development",
+        "description": "Focus on system design, new technologies, or project work to advance your career."
+      },
+      {
+        "time": "13:00",
+        "activity": "LUNCH",
+        "priority": "LOW",
+        "duration_min": 60,
+        "checkpoint_type": null,
+        "notes": "",
+        "display_name": "Lunch",
+        "description": "Take a break to refuel with a nutritious meal."
+      },
+      {
+        "time": "14:00",
+        "activity": "FREE_TIME",
+        "priority": "LOW",
+        "duration_min": 180,
+        "checkpoint_type": null,
+        "notes": "Pending tasks, hobbies, or rest",
+        "display_name": "Free Time",
+        "description": "Use this time for pending tasks, hobbies, or simply to relax."
+      },
+      {
+        "time": "17:00",
+        "activity": "PERSONAL_TIME",
+        "priority": "MEDIUM",
+        "duration_min": 120,
+        "checkpoint_type": null,
+        "notes": "Time-boxed. Back by 19:00.",
+        "display_name": "Personal Time",
+        "description": "Use this hour for personal tasks or relaxation, but be back at your desk by 9:00."
+      },
+      {
+        "time": "19:00",
+        "activity": "EVENING_CHECKPOINT",
+        "priority": "HIGH",
+        "duration_min": 2,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "Confirm you are back on track",
+        "display_name": "Evening Checkpoint",
+        "description": "Quickly check in to ensure you're on track for the evening."
+      },
+      {
+        "time": "20:00",
+        "activity": "DINNER",
+        "priority": "LOW",
+        "duration_min": 45,
+        "checkpoint_type": null,
+        "notes": "",
+        "display_name": "Dinner",
+        "description": "Have a light dinner to promote better digestion and restful sleep."
+      },
+      {
+        "time": "21:00",
+        "activity": "EOD_REPORT",
+        "priority": "HIGH",
+        "duration_min": 10,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "",
+        "display_name": "End of Day Report",
+        "description": "Summarize your day and plan for tomorrow with the help of AI."
+      },
+      {
+        "time": "23:00",
+        "activity": "SLEEP",
+        "priority": "MEDIUM",
+        "duration_min": 480,
+        "checkpoint_type": null,
+        "notes": "Weekend sleep catch-up allowed",
+        "display_name": "Sleep",
+        "description": "Aim for a solid 7 hours of sleep to ensure you wake up refreshed and ready."
+      }
+    ],
+    "sunday": [
+      {
+        "time": "08:00",
+        "activity": "WAKE_UP",
+        "priority": "MEDIUM",
+        "duration_min": 5,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "Rest day wake-up",
+        "display_name": "Wake Up",
+        "description": "Start the day on time. Missing this sets a bad tone for everything that follows."
+      },
+      {
+        "time": "09:00",
+        "activity": "WEEKLY_REVIEW",
+        "priority": "HIGH",
+        "duration_min": 60,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "AI reviews week, adjusts next week's schedule",
+        "display_name": "Weekly Review",
+        "description": "Reflect on the past week and adjust your schedule for the upcoming week."
+      },
+      {
+        "time": "10:00",
+        "activity": "LEETCODE_OPTIONAL",
+        "priority": "LOW",
+        "duration_min": 60,
+        "checkpoint_type": null,
+        "notes": "Catch up if behind weekly goal",
+        "display_name": "LeetCode Optional",
+        "description": "Catch up on any missed problems to stay aligned with your weekly goals."
+      },
+      {
+        "time": "11:00",
+        "activity": "LIFE_ADMIN",
+        "priority": "LOW",
+        "duration_min": 120,
+        "checkpoint_type": null,
+        "notes": "Laundry, cleaning, finances, planning",
+        "display_name": "Life Admin",
+        "description": "Handle necessary chores like laundry and planning to keep your life organized."
+      },
+      {
+        "time": "13:00",
+        "activity": "LUNCH",
+        "priority": "LOW",
+        "duration_min": 60,
+        "checkpoint_type": null,
+        "notes": "",
+        "display_name": "Lunch",
+        "description": "Take a break to refuel with a nutritious meal."
+      },
+      {
+        "time": "14:00",
+        "activity": "REST_OR_HOBBY",
+        "priority": "LOW",
+        "duration_min": 240,
+        "checkpoint_type": null,
+        "notes": "Swimming, shooting, or complete rest",
+        "display_name": "Rest or Hobby",
+        "description": "Engage in activities like swimming or simply rest to recharge your batteries."
+      },
+      {
+        "time": "18:00",
+        "activity": "PERSONAL_TIME",
+        "priority": "LOW",
+        "duration_min": 120,
+        "checkpoint_type": null,
+        "notes": "Only if weekly goals met",
+        "display_name": "Personal Time",
+        "description": "Use this hour for personal tasks or relaxation, but be back at your desk by 9:00."
+      },
+      {
+        "time": "20:00",
+        "activity": "DINNER",
+        "priority": "LOW",
+        "duration_min": 45,
+        "checkpoint_type": null,
+        "notes": "",
+        "display_name": "Dinner",
+        "description": "Have a light dinner to promote better digestion and restful sleep."
+      },
+      {
+        "time": "21:30",
+        "activity": "NEXT_WEEK_PREP",
+        "priority": "MEDIUM",
+        "duration_min": 30,
+        "checkpoint_type": "TELEGRAM_TEXT",
+        "notes": "Review Monday schedule, set intentions",
+        "display_name": "Next Week Prep",
+        "description": "Review your upcoming schedule and set your intentions for a productive week."
+      },
+      {
+        "time": "22:30",
+        "activity": "SLEEP",
+        "priority": "HIGH",
+        "duration_min": 480,
+        "checkpoint_type": null,
+        "notes": "Reset for Monday",
+        "display_name": "Sleep",
+        "description": "Aim for a solid 7 hours of sleep to ensure you wake up refreshed and ready."
+      }
+    ]
+  },
+  "on_call_overrides": {
+    "triggers": [
+      "PagerDuty",
+      "OpsGenie",
+      "Slack @oncall",
+      "War Mode"
+    ],
+    "schedule_modifiers": {
+      "post_incident_sleep_extension": 120,
+      "skip_morning_gym": true,
+      "reduce_leetcode_to_minimum": true,
+      "extend_deep_work_blocks": false
+    }
+  },
+  "event_overrides": {
+    "guest_at_home": {
+      "modify_activities": [
+        "GYM",
+        "LEETCODE_HOUR",
+        "PERSONAL_TIME"
+      ],
+      "strategy": "TIME_SHIFT",
+      "shift_by_hours": 2
+    },
+    "travel_day": {
+      "mode": "AWAY",
+      "only_checkpoints": [
+        "STEPS",
+        "FOOD_LOG"
+      ]
+    }
+  },
+  "compensation_rules": {
+    "missed_gym": "ADD_TO_NEXT_DAY",
+    "missed_leetcode": "DOUBLE_NEXT_DAY",
+    "sleep_debt_hours": "ADD_TO_WEEKEND_SLEEP",
+    "max_sleep_debt_carryover": 6
+  }
+}
