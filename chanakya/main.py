@@ -145,7 +145,7 @@ def create_fastapi_app() -> FastAPI:
     @app.post("/chat")
     async def web_chat(request: Request):
         """Handle chat from the web dashboard."""
-        from chanakya.bot.telegram_bot import _process_message_inner
+        from chanakya.bot.telegram_bot import generic_process_message
         from chanakya.db.mongo import users
         
         data = await request.json()
@@ -156,8 +156,8 @@ def create_fastapi_app() -> FastAPI:
         if not user:
             return {"response": "No active user found in Dharma database."}
             
-        # Process through the main agent engine
-        response_text = await _process_message_inner(user, text, channel="web")
+        # Process through the universal agent engine
+        response_text = await generic_process_message(user, text, channel="WEB")
         return {"response": response_text}
 
     @app.post("/telegram")
