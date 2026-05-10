@@ -10,6 +10,7 @@ python-dotenv
 langchain
 langchain-openai
 langchain-community
+python-telegram-bot
 twilio
 elevenlabs
 pytz
