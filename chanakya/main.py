@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI):
     application = build_application()
     
     logger.info("📡 Attempting Webhook Registration with URL: %s", WEBHOOK_URL)
-    webhook_url = WEBHOOK_URL.rstrip("/") + "/telegram"
+    webhook_url = WEBHOOK_URL.rstrip("/") + "/"  # Use root URL
 
     try:
         await application.initialize()
@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI):
         )
         await application.start()
         _telegram_app = application
-        logger.info("✅ Telegram Webhook registered successfully. Response: %s", res)
+        logger.info("✅ Telegram Webhook registered successfully at Root. Response: %s", res)
     except Exception as e:
         logger.error("❌ FAILED to register Telegram Webhook: %s", e)
 
@@ -154,7 +154,7 @@ def create_fastapi_app() -> FastAPI:
         return {
             "telegram": {
                 "active": _telegram_app is not None,
-                "webhook_url": WEBHOOK_URL.rstrip("/") + "/telegram" if WEBHOOK_URL else None
+                "webhook_url": WEBHOOK_URL.rstrip("/") + "/" if WEBHOOK_URL else None
             },
             "guru": {
                 "mode": user.get("current_mode", "NORMAL") if user else "UNKNOWN",
@@ -184,7 +184,7 @@ def create_fastapi_app() -> FastAPI:
         response_text = await generic_process_message(user, text, channel="WEB")
         return {"response": response_text}
 
-    @app.post("/telegram")
+    @app.post("/")
     async def telegram_webhook(request: Request) -> Response:
         """Receive Telegram update via webhook and dispatch to the bot."""
         if _telegram_app is None:
