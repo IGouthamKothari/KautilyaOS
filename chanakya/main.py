@@ -82,30 +82,27 @@ async def lifespan(app: FastAPI):
     # 2. Telegram bot — webhook mode
     from chanakya.bot.telegram_bot import build_application
     application = build_application()
+    
+    logger.info("📡 Attempting Webhook Registration with URL: %s", WEBHOOK_URL)
     webhook_url = WEBHOOK_URL.rstrip("/") + "/telegram"
 
     try:
         await application.initialize()
-        await application.bot.set_webhook(
+        res = await application.bot.set_webhook(
             url=webhook_url,
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
         )
         await application.start()
         _telegram_app = application
-        logger.info("✅ Telegram Webhook successfully registered: %s", webhook_url)
+        logger.info("✅ Telegram Webhook registered successfully. Response: %s", res)
     except Exception as e:
         logger.error("❌ FAILED to register Telegram Webhook: %s", e)
-        # We don't raise here to allow the rest of the app (Web UI, Scheduler) to function
 
     # Auto-seed schedule for any active users with no checkpoints
     _auto_seed_schedules()
 
-    # Proactive Startup Audit: Check user status immediately on boot
-    from chanakya.bot.telegram_bot import perform_startup_audit
-    asyncio.create_task(perform_startup_audit(application))
-
-    logger.info("Chanakya is watching. Webhook: %s", webhook_url)
+    logger.info("Chanakya is watching. Webhook Active: %s", webhook_url)
     
     yield
 

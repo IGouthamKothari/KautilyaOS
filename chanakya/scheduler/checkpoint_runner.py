@@ -519,15 +519,16 @@ def _process_user(user: dict) -> None:
     user = _expire_war_mode_if_needed(user)
 
     # 23.1: Get local HH:MM
-    local_hhmm = _get_local_hhmm(user)
+    tz = pytz.timezone(user.get("timezone", "Asia/Kolkata"))
+    now_local = datetime.now(tz)
+    local_hhmm = now_local.strftime("%H:%M")
+
     # Check for current minute and the previous minute to handle minor delays
     past_minute = (now_local - timedelta(minutes=1)).strftime("%H:%M")
     due_times = [local_hhmm, past_minute]
 
     logger.info("Evaluating schedule for user %s at local time %s", user.get("_id"), local_hhmm)
 
-    tz = pytz.timezone(user.get("timezone", "Asia/Kolkata"))
-    now_local = datetime.now(tz)
     local_date = now_local.strftime("%Y-%m-%d")
     day_of_week = now_local.strftime("%A").lower()  # "sunday", "monday", etc.
 
