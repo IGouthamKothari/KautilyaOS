@@ -144,6 +144,27 @@ def create_fastapi_app() -> FastAPI:
     async def health():
         return {"status": "ok", "service": "chanakya-bot"}
 
+    @app.get("/api/status")
+    async def get_system_status():
+        """Return detailed bot status for the dashboard."""
+        from chanakya.db.mongo import users
+        user = users.find_one({"active": True})
+        
+        return {
+            "telegram": {
+                "active": _telegram_app is not None,
+                "webhook_url": WEBHOOK_URL.rstrip("/") + "/telegram" if WEBHOOK_URL else None
+            },
+            "guru": {
+                "mode": user.get("current_mode", "NORMAL") if user else "UNKNOWN",
+                "streak": user.get("streak_count", 0) if user else 0,
+                "heartbeat": datetime.utcnow().isoformat()
+            },
+            "twilio": {
+                "active": bool(os.getenv("TWILIO_ACCOUNT_SID"))
+            }
+        }
+
     @app.post("/chat")
     async def web_chat(request: Request):
         """Handle chat from the web dashboard."""

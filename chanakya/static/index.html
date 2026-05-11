@@ -170,14 +170,34 @@
         .message p { margin-bottom: 0.8rem; }
         .message b { color: var(--accent-gold); }
         
+        .status-bar {
+            display: flex;
+            gap: 1.5rem;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            color: var(--text-muted);
+        }
+
         .status-dot {
-            width: 8px;
-            height: 8px;
-            background: #4caf50;
+            width: 6px;
+            height: 6px;
+            background: #ff5252;
             border-radius: 50%;
             display: inline-block;
-            margin-right: 8px;
-            box-shadow: 0 0 10px #4caf50;
+            margin-right: 6px;
+            box-shadow: 0 0 8px #ff5252;
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.online {
+            background: #4caf50;
+            box-shadow: 0 0 8px #4caf50;
         }
 
     </style>
@@ -185,7 +205,20 @@
 <body>
 
     <header>
-        <div class="brand">Kautilya<span style="color: white;">OS</span></div>
+        <div>
+            <div class="brand">Kautilya<span style="color: white;">OS</span></div>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span id="tg-dot" class="status-dot"></span> Telegram Link
+                </div>
+                <div class="status-item">
+                    <span id="tw-dot" class="status-dot"></span> Twilio Engine
+                </div>
+                <div class="status-item">
+                    <span id="guru-mode" style="color: var(--accent-gold); font-weight: 600;">NORMAL</span>
+                </div>
+            </div>
+        </div>
         <div id="clock">12:00:00 AM</div>
     </header>
 
@@ -216,6 +249,22 @@
         }
         setInterval(updateClock, 1000);
         updateClock();
+
+        // System Status logic
+        async function updateStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                
+                document.getElementById('tg-dot').className = data.telegram.active ? 'status-dot online' : 'status-dot';
+                document.getElementById('tw-dot').className = data.twilio.active ? 'status-dot online' : 'status-dot';
+                document.getElementById('guru-mode').innerText = data.guru.mode;
+            } catch (err) {
+                console.error("Status check failed");
+            }
+        }
+        setInterval(updateStatus, 30000);
+        updateStatus();
 
         function addMessage(text, role) {
             const div = document.createElement('div');
