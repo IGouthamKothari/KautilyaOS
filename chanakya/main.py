@@ -7,6 +7,7 @@ import asyncio
 import logging
 import signal
 import threading
+from datetime import datetime
 from contextlib import asynccontextmanager
 
 import uvicorn
