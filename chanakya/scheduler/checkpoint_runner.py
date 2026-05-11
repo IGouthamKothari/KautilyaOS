@@ -146,12 +146,16 @@ def _get_due_checkpoints(user: dict, local_hhmm: str) -> list[dict]:
     today_dow = now_local.strftime("%A").lower()         # "friday"
     cutoff = datetime.utcnow() - timedelta(hours=23)
 
+    # Check for current minute and the previous minute to handle minor delays
+    past_minute = (now_local - timedelta(minutes=1)).strftime("%H:%M")
+    due_times = [local_hhmm, past_minute]
+
     # 1. Base checkpoints for today's weekday
     base = list(
         checkpoints.find(
             {
                 "user_id": user["_id"],
-                "time": local_hhmm,
+                "time": {"$in": due_times},
                 "active": True,
                 "$or": [
                     {"days": {"$exists": False}},
@@ -174,7 +178,7 @@ def _get_due_checkpoints(user: dict, local_hhmm: str) -> list[dict]:
             {
                 "user_id": user["_id"],
                 "date": today_str,
-                "time": local_hhmm,
+                "time": {"$in": due_times},
                 "active": True,
                 "fired": {"$ne": True},
             }
@@ -350,7 +354,7 @@ def _execute_call_action(
         _execute_telegram_text(user, rendered_prompt)
         return None
 
-    phone = user.get("phone", "")
+    phone = user.get("phone", "").strip()
     if not phone:
         logger.warning(
             "No phone number for user %s — falling back to Telegram text.",
@@ -358,6 +362,15 @@ def _execute_call_action(
         )
         _execute_telegram_text(user, rendered_prompt)
         return None
+
+    # E.164 compliance: ensure it starts with +
+    if not phone.startswith("+"):
+        # Default to +91 if it's a 10-digit Indian number or similar
+        if len(phone) == 10:
+            phone = "+91" + phone
+        else:
+            phone = "+" + phone
+        logger.info("Normalised phone number for user %s: %s", user.get("_id"), phone)
 
     session_id = str(log_id) if log_id else None
     if session_id:
@@ -507,6 +520,11 @@ def _process_user(user: dict) -> None:
 
     # 23.1: Get local HH:MM
     local_hhmm = _get_local_hhmm(user)
+    # Check for current minute and the previous minute to handle minor delays
+    past_minute = (now_local - timedelta(minutes=1)).strftime("%H:%M")
+    due_times = [local_hhmm, past_minute]
+
+    logger.info("Evaluating schedule for user %s at local time %s", user.get("_id"), local_hhmm)
 
     tz = pytz.timezone(user.get("timezone", "Asia/Kolkata"))
     now_local = datetime.now(tz)
@@ -541,7 +559,9 @@ def _process_user(user: dict) -> None:
 
     checkin_times = get_or_create_checkin_schedule(user, local_date)
 
-    if local_hhmm in checkin_times and should_fire_checkin(user):
+    # Check if any due time matches a scheduled check-in
+    matching_checkin = next((t for t in due_times if t in checkin_times), None)
+    if matching_checkin and should_fire_checkin(user):
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
