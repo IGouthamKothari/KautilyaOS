@@ -84,15 +84,19 @@ async def lifespan(app: FastAPI):
     application = build_application()
     webhook_url = WEBHOOK_URL.rstrip("/") + "/telegram"
 
-    await application.initialize()
-    await application.bot.set_webhook(
-        url=webhook_url,
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True,
-    )
-    await application.start()
-    _telegram_app = application
-    logger.info("Telegram webhook registered at %s", webhook_url)
+    try:
+        await application.initialize()
+        await application.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+        )
+        await application.start()
+        _telegram_app = application
+        logger.info("✅ Telegram Webhook successfully registered: %s", webhook_url)
+    except Exception as e:
+        logger.error("❌ FAILED to register Telegram Webhook: %s", e)
+        # We don't raise here to allow the rest of the app (Web UI, Scheduler) to function
 
     # Auto-seed schedule for any active users with no checkpoints
     _auto_seed_schedules()
