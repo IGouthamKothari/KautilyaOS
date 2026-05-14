@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from bson import ObjectId
 from datetime import datetime
 
+from chanakya.config import WEBHOOK_URL
 from chanakya.db.mongo import users, interaction_logs, agent_tasks
 from chanakya.scheduler.task_runner import schedule_agent_task, recover_pending_tasks
 from chanakya.bot.telegram_bot import generic_process_message
@@ -63,6 +64,20 @@ async def force_recover_tasks():
     """Manually trigger the recovery of PENDING tasks."""
     recover_pending_tasks()
     return {"status": "success", "message": "Recovery sequence initiated."}
+
+@router.post("/reset_webhook")
+async def reset_telegram_webhook():
+    """Force re-register the Telegram webhook using the current WEBHOOK_URL."""
+    from chanakya.main import _telegram_app
+    if not _telegram_app:
+        raise HTTPException(status_code=500, detail="Telegram application not initialized.")
+    
+    if not WEBHOOK_URL:
+         raise HTTPException(status_code=400, detail="WEBHOOK_URL not configured.")
+         
+    webhook_url = WEBHOOK_URL.rstrip("/") + "/"
+    res = await _telegram_app.bot.set_webhook(url=webhook_url, drop_pending_updates=False)
+    return {"status": "success", "url": webhook_url, "telegram_response": res}
 
 @router.get("/status")
 async def get_test_status():

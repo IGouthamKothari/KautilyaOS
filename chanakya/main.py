@@ -123,7 +123,8 @@ async def lifespan(app: FastAPI):
     stop_runner()
     stop_task_runner()
     if _telegram_app:
-        await _telegram_app.bot.delete_webhook()
+        # We don't delete the webhook on shutdown anymore to prevent 
+        # missing updates during quick restarts/redeploys.
         await _telegram_app.stop()
         await _telegram_app.shutdown()
     logger.info("Shutdown complete.")
