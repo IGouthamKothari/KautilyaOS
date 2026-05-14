@@ -682,7 +682,7 @@ def _build_tier3(user: dict, activity_slot: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _build_tier4(user: dict, today_context_text: str) -> dict:
+async def _build_tier4(user: dict, today_context_text: str) -> dict:
     """
     Build Tier 4 — Deep Memory.
 
@@ -694,23 +694,23 @@ def _build_tier4(user: dict, today_context_text: str) -> dict:
     # 10.1 — Vector similarity search with fallback
     query_vector = []
     try:
-        import requests
+        import httpx
         from chanakya.config import OPENAI_API_KEY
         
-        resp = requests.post(
-            "https://api.openai.com/v1/embeddings",
-            headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "input": today_context_text,
-                "model": "text-embedding-3-small"
-            },
-            timeout=5.0
-        )
-        if resp.status_code == 200:
-            query_vector = resp.json()["data"][0]["embedding"]
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "input": today_context_text,
+                    "model": "text-embedding-3-small"
+                }
+            )
+            if resp.status_code == 200:
+                query_vector = resp.json()["data"][0]["embedding"]
     except Exception as exc:
         logger.warning("Failed to generate embedding for vector search: %s", exc)
 
@@ -883,7 +883,7 @@ class ContextAssembler:
         context = assembler.build(user, interaction_type, session_context)
     """
 
-    def build(
+    async def build(
         self,
         user: dict,
         interaction_type: str,
@@ -933,7 +933,7 @@ class ContextAssembler:
         if interaction_type in _TIER4_TYPES:
             # Build a brief text summary of today's context for vector search
             today_context_text = f"{tier1.get('today_date', '')} {activity_slot}"
-            tier4 = _build_tier4(effective_user, today_context_text)
+            tier4 = await _build_tier4(effective_user, today_context_text)
 
         # Prompt templates — always fetched
         try:

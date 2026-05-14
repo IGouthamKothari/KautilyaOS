@@ -84,7 +84,7 @@ class ElevenLabsClient:
     """Thin wrapper around the ElevenLabs TTS REST API."""
 
     BASE_URL = "https://api.elevenlabs.io/v1"
-    MODEL_ID = "eleven_monolingual_v1"
+    MODEL_ID = "eleven_multilingual_v2"
 
     def synthesise(self, text: str, voice_id: str) -> bytes:
         """Synthesise text to audio bytes using the ElevenLabs TTS API.

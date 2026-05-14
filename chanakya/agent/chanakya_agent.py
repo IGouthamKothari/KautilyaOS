@@ -862,7 +862,7 @@ class ChanakyaAgent:
 
         # Step 1: Assemble context
         try:
-            context = self.assembler.build(user, interaction_type, session_context)
+            context = await self.assembler.build(user, interaction_type, session_context)
             # Privacy Scrubbing: De-identify names/PII before they hit the cloud
             context = scrub_recursive(context, user["_id"])
         except Exception as exc:
@@ -893,7 +893,7 @@ class ChanakyaAgent:
                     HumanMessage(content=current_human),
                 ]
                 _t = Timer()
-                response = llm.invoke(messages)
+                response = await llm.ainvoke(messages)
                 raw_response = response.content
                 _log_llm_attempt(user, MODEL, interaction_type, "success")
                 log_llm(

@@ -235,7 +235,7 @@ def _synthesize_for_turn(text: str, session: dict) -> bytes | None:
     try:
         client = ElevenLabsClient()
         audio_bytes = client.synthesise(text, voice_id)
-        logger.info("ElevenLabs turn synthesis: %d bytes for user %s", len(audio_bytes), user_id)
+        logger.info("ElevenLabs turn synthesis: %d bytes for user %s", len(audio_bytes), str(user_id))
         return audio_bytes
     except ElevenLabsSynthesisError as exc:
         logger.warning("ElevenLabs turn synthesis failed: %s", exc)
@@ -263,7 +263,8 @@ def _build_gather_twiml(
         # We add a tiny pause before playing to ensure the connection is stable
         speech_element = f"<Pause length=\"1\"/><Play>{_safe_xml(audio_url)}</Play>"
     else:
-        speech_element = f"<Say voice=\"Polly.Raveena\">{_safe_xml(say_text)}</Say>"
+        # Neutral fallback - better than Polly
+        speech_element = f"<Say>{_safe_xml(say_text)}</Say>"
 
     if is_final:
         return (
