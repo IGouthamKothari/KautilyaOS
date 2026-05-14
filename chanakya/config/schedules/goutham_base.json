@@ -18,6 +18,8 @@
         "priority": "CRITICAL",
         "duration_min": 5,
         "checkpoint_type": "CALL",
+        "persistent_nudge": true,
+        "persistent_nudge_interval_minutes": 5,
         "notes": "Wake-up call. Confirm you are up.",
         "display_name": "Wake Up",
         "description": "Start the day on time. Missing this sets a bad tone for everything that follows."
@@ -28,6 +30,8 @@
         "priority": "HIGH",
         "duration_min": 75,
         "checkpoint_type": "IMAGE_DEMAND",
+        "persistent_nudge": true,
+        "persistent_nudge_interval_minutes": 5,
         "notes": "Pre-workout photo proof required",
         "display_name": "Gym Session",
         "description": "Get your workout in early to boost energy and focus for the day ahead."

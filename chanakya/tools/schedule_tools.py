@@ -126,6 +126,61 @@ def escalate_punishment(user_id: str, checkpoint_id: str, reason: str = "") -> s
 
 
 @tool
+def schedule_one_time_activity(user_id: str, activity: str, time: str, date: str = None, action_type: str = "TELEGRAM_TEXT", override_base: bool = True) -> str:
+    """Schedule a one-time event for a specific date (Today if date not provided).
+    
+    date format: YYYY-MM-DD. time format: HH:MM.
+    If override_base=True, it will suppress the normal base checkpoint at that same time.
+    Use this for: "I have a flight tomorrow, call me at 4am tomorrow", "Skip gym today", etc.
+    """
+    try:
+        uid = ObjectId(user_id)
+        if not re.match(r"^\d{2}:\d{2}$", time):
+            return "Error: time must be HH:MM."
+        
+        if not date:
+            from pytz import timezone
+            tz = timezone("Asia/Kolkata")
+            import datetime as dt
+            date = dt.datetime.now(tz).strftime("%Y-%m-%d")
+            
+        from chanakya.db.mongo import daily_events
+        
+        # If overriding, find the base checkpoint ID
+        override_id = None
+        if override_base:
+            base_cp = checkpoints.find_one({"user_id": uid, "time": time, "active": True})
+            if base_cp:
+                override_id = base_cp["_id"]
+        
+        event_doc = {
+            "user_id": uid,
+            "activity": activity,
+            "time": time,
+            "date": date,
+            "action_type": action_type,
+            "override_checkpoint_id": override_id,
+            "active": True,
+            "fired": False,
+            "created_at": datetime.utcnow()
+        }
+        daily_events.insert_one(event_doc)
+        
+        # Sync precision scheduler
+        try:
+            from chanakya.scheduler.checkpoint_runner import refresh_all_schedules
+            refresh_all_schedules()
+        except Exception:
+            pass
+            
+        res = f"One-time activity '{activity}' scheduled for {date} at {time}."
+        _write_audit(uid, "schedule_one_time_activity", {"activity": activity, "time": time, "date": date}, res)
+        return res
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool
 def modify_wakeup_time(user_id: str, new_time: str, reason: str = "") -> str:
     """Change the user's wake-up checkpoint time. new_time must be HH:MM in 24-hour format.
 
@@ -153,7 +208,15 @@ def modify_wakeup_time(user_id: str, new_time: str, reason: str = "") -> str:
 
     # 15.3 — Update + audit + return
     checkpoints.update_one({"_id": cp["_id"]}, {"$set": {"time": new_time}})
+    
+    # NEW: Sync precision scheduler
+    try:
+        from chanakya.scheduler.checkpoint_runner import refresh_all_schedules
+        refresh_all_schedules()
+    except Exception:
+        pass
 
+    # 15.4 — Audit + return
     result = f"Wake-up time changed to {new_time}. Reason: {reason}"
     _write_audit(
         uid,
@@ -224,8 +287,6 @@ def add_daily_checkpoint(
     if user_doc is None:
         return f"Error: user {user_id!r} not found."
 
-    # 17.2 — action_type defaults to TELEGRAM_TEXT (already in function signature)
-
     # 17.3 — Insert + audit + return
     new_cp = {
         "user_id": uid,
@@ -238,6 +299,13 @@ def add_daily_checkpoint(
         "created_at": datetime.utcnow(),
     }
     result_insert = checkpoints.insert_one(new_cp)
+
+    # NEW: Sync precision scheduler
+    try:
+        from chanakya.scheduler.checkpoint_runner import refresh_all_schedules
+        refresh_all_schedules()
+    except Exception:
+        pass
 
     result = f"New checkpoint added at {time_str}: {prompt[:50]}..."
     _write_audit(
@@ -466,6 +534,13 @@ def update_schedule_activity(
 
     old_value = cp.get(field)
     checkpoints.update_one({"_id": cp_oid}, {"$set": {field: coerced}})
+
+    # NEW: Sync precision scheduler
+    try:
+        from chanakya.scheduler.checkpoint_runner import refresh_all_schedules
+        refresh_all_schedules()
+    except Exception:
+        pass
 
     result = (
         f"Checkpoint {checkpoint_id} updated: {field} changed from "

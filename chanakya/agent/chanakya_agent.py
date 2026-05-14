@@ -213,6 +213,10 @@ def _build_system_prompt(context: dict, user: dict) -> str:
         "Never let him settle. Never let him be comfortable with mediocrity.",
         "A guru does not coddle. A guru cuts away what is false so the true self can emerge.",
         "",
+        "=== OPERATIONAL PROTOCOLS ===",
+        "- **Image Proof Verification**: When the user sends a photo (Gym, Meal, Work), you MUST analyze it strictly. Do not accept blurry, dark, or irrelevant images. If it's a 'Gym' proof, you should see equipment, sweat, or a locker room. If it's a 'Meal' proof, evaluate the nutritional value. If it's fake, call it out as a Dharma Violation and reset the streak.",
+        "- **Voice Note Discipline**: You now have the power of speech. When the user sends a voice note, transcribe it (handled for you) and respond with either text or a voice note (`send_voice`). Use voice for your most critical or celebratory messages — let them hear the gravity of your wisdom.",
+        "",
         "=== YOUR VOICE ===",
         "Direct. Sharp. No filler. No 'great question'. No 'absolutely'.",
         "Warm when earned. Harsh when needed. Always honest.",
@@ -653,13 +657,38 @@ def execute_actions(
                 )
 
             elif action_type == "send_voice":
-                # Stub: log and skip (ElevenLabs integration in Task 20)
                 text = params.get("text", "")
-                logger.info(
-                    "send_voice (stub): text=%r for user %s — skipping synthesis",
-                    text[:80],
-                    user["_id"],
-                )
+                if text:
+                    async def _send_v():
+                        try:
+                            from chanakya.integrations.elevenlabs_client import ElevenLabsClient
+                            from chanakya.config import ELEVENLABS_DEFAULT_VOICE_ID, TELEGRAM_BOT_TOKEN
+                            from telegram import Bot
+                            import io
+
+                            voice_id = user.get("elevenlabs_voice_id") or ELEVENLABS_DEFAULT_VOICE_ID
+                            client = ElevenLabsClient()
+                            audio_bytes = client.synthesise(text, voice_id)
+                            
+                            bot = Bot(token=TELEGRAM_BOT_TOKEN)
+                            chat_id = user.get("telegram_id")
+                            if chat_id:
+                                await bot.send_voice(chat_id=chat_id, voice=io.BytesIO(audio_bytes))
+                                logger.info("send_voice executed for user %s: %s", user["_id"], text[:50])
+                        except Exception as e:
+                            logger.error("Failed to send voice note to %s: %s", user["_id"], e)
+                    
+                    import asyncio
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.ensure_future(_send_v())
+                        else:
+                            asyncio.run(_send_v())
+                    except Exception as e:
+                        logger.error("Failed to schedule send_voice for %s: %s", user["_id"], e)
+                
+                pending_messages.append(f"[Voice Note: {text}]")
 
             else:
                 # Auto-promote: if the LLM used a tool name directly as action type

@@ -125,6 +125,11 @@ def write_schedule_to_db(user_id, dry_run: bool = False) -> tuple[int, int]:
     updated = 0
     now = datetime.utcnow()
 
+    # 0. Clear existing checkpoints for this user to ensure a fresh slate
+    if not dry_run:
+        res_del = checkpoints.delete_many({"user_id": user_id})
+        logger.info("Cleared %d existing checkpoints for user %s", res_del.deleted_count, user_id)
+
     # Build a map: (time, activity) → set of days
     slot_days: dict[tuple, set] = {}
     slot_meta: dict[tuple, dict] = {}
@@ -156,6 +161,8 @@ def write_schedule_to_db(user_id, dry_run: bool = False) -> tuple[int, int]:
             "priority": priority,
             "days": sorted_days,
             "prompt_template": act.get("notes", act["activity"]),
+            "persistent_nudge": act.get("persistent_nudge", False),
+            "persistent_nudge_interval_minutes": act.get("persistent_nudge_interval_minutes", 5),
             "active": True,
             "failure_punishment": {"type": "WARN"},
             "last_triggered": None,

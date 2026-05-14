@@ -146,6 +146,17 @@ async def generic_process_message(
     # Update log
     if log_id is not None:
         try:
+            # Task 1.1: Cancel pending nudges for the user's last unanswered checkpoint
+            from chanakya.scheduler.task_runner import cancel_nudge
+            last_pending = interaction_logs.find_one(
+                {"user_id": user["_id"], "trigger_type": "SCHEDULED", "user_response": None},
+                sort=[("timestamp", -1)]
+            )
+            if last_pending:
+                cancel_nudge(last_pending["_id"])
+                # Mark it as 'answered' by linking to this manual response
+                interaction_logs.update_one({"_id": last_pending["_id"]}, {"$set": {"user_response": user_input}})
+
             interaction_logs.update_one(
                 {"_id": log_id},
                 {"$set": {
@@ -238,6 +249,51 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await _process_message(update, user_input, telegram_id)
 
 
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    telegram_id = str(update.effective_user.id)
+    caption = update.message.caption or ""
+    
+    # Get the largest photo
+    photo_file = await update.message.photo[-1].get_file()
+    media_url = photo_file.file_path # This is a temporary public URL from Telegram
+    
+    logger.info("📸 Photo received from %s. Caption: %s", telegram_id, caption)
+    await _process_message(update, caption or "[Sent a photo]", telegram_id, media_url=media_url)
+
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    telegram_id = str(update.effective_user.id)
+    voice = update.message.voice
+    
+    # Download voice file
+    voice_file = await voice.get_file()
+    
+    # Transcribe using OpenAI Whisper
+    import tempfile
+    import os
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        await voice_file.download_to_drive(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        with open(tmp_path, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file
+            )
+        user_input = transcript.text
+        logger.info("🎙️ Voice transcribed for %s: %s", telegram_id, user_input)
+        await _process_message(update, user_input, telegram_id)
+    except Exception as e:
+        logger.error("Failed to transcribe voice for %s: %s", telegram_id, e)
+        await update.message.reply_text("I heard your voice, but I couldn't understand it. Try text.")
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 async def perform_startup_audit(application: Application = None) -> None:
     """Proactive system check on boot. Waits 30s for server stability."""
     await _asyncio.sleep(30)
@@ -270,4 +326,6 @@ def build_application() -> Application:
     app: Application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     return app

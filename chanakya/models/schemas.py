@@ -155,6 +155,8 @@ class Checkpoint(BaseModel):
     response_validation: Optional[ResponseValidation] = None
     success_action: Optional[str] = None
     failure_punishment: Optional[FailurePunishment] = None
+    persistent_nudge: bool = False
+    persistent_nudge_interval_minutes: int = 5
     active: bool = True
     last_triggered: Optional[datetime] = None
     created_at: Optional[datetime] = None

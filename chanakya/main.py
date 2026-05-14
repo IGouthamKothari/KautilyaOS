@@ -103,6 +103,19 @@ async def lifespan(app: FastAPI):
     # Auto-seed schedule for any active users with no checkpoints
     _auto_seed_schedules()
 
+    # Safety check: Detect ngrok URL in production (Render)
+    if os.getenv("RENDER") == "true" and "ngrok" in (WEBHOOK_URL or "").lower():
+        logger.warning(
+            "⚠️  PRODUCTION WARNING: WEBHOOK_URL seems to be an ngrok URL (%s) but you are running on Render. "
+            "Twilio and Telegram will NOT be able to reach this server. "
+            "Please update your RENDER environment variables to use your .onrender.com URL.",
+            WEBHOOK_URL
+        )
+
+    # Perform startup audit (Guru's Awakening)
+    from chanakya.bot.telegram_bot import perform_startup_audit
+    asyncio.ensure_future(perform_startup_audit(application))
+
     logger.info("Chanakya is watching. Webhook Active: %s", webhook_url)
     
     yield

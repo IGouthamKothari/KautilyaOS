@@ -20,16 +20,147 @@ logger = logging.getLogger(__name__)
 task_scheduler = BackgroundScheduler()
 
 def start_task_runner() -> None:
-    """Start the task runner. Called once at app startup."""
-    task_scheduler.add_job(run_tasks, "interval", seconds=15, id="agent_task_runner")
-    task_scheduler.add_job(monitor_engagement, "interval", minutes=5, id="engagement_monitor")
-    task_scheduler.start()
-    logger.info("Task runner and engagement monitor started.")
+    """Start the task scheduler."""
+    if not task_scheduler.running:
+        task_scheduler.start()
+    # On startup, recover any PENDING tasks and schedule them
+    recover_pending_tasks()
+    logger.info("Precision Task Runner started.")
+
 
 def stop_task_runner() -> None:
-    """Stop the task runner. Called at app shutdown."""
+    """Stop the task runner."""
     task_scheduler.shutdown(wait=False)
     logger.info("Task runner stopped.")
+
+
+def schedule_agent_task(task_id: ObjectId, run_at: datetime = None) -> None:
+    """Schedule a specific agent task for execution."""
+    if run_at is None:
+        run_at = datetime.utcnow()
+    
+    task_scheduler.add_job(
+        _execute_task_by_id,
+        "date",
+        run_date=run_at,
+        args=[task_id],
+        id=f"task_{task_id}",
+        replace_existing=True
+    )
+    logger.info("Task %s scheduled for %s", task_id, run_at)
+
+
+def schedule_engagement_nudge(log_id: ObjectId, delay_minutes: int) -> None:
+    """Schedule a follow-up nudge for a specific interaction."""
+    run_at = datetime.utcnow() + timedelta(minutes=delay_minutes)
+    task_scheduler.add_job(
+        _fire_nudge,
+        "date",
+        run_date=run_at,
+        args=[log_id],
+        id=f"nudge_{log_id}",
+        replace_existing=True
+    )
+    logger.info("Nudge for interaction %s scheduled for +%dm", log_id, delay_minutes)
+
+
+def cancel_nudge(log_id: ObjectId) -> None:
+    """Cancel a pending nudge if the user has responded."""
+    job_id = f"nudge_{log_id}"
+    if task_scheduler.get_job(job_id):
+        task_scheduler.remove_job(job_id)
+        logger.info("Nudge %s cancelled due to user response.", log_id)
+
+
+def recover_pending_tasks() -> None:
+    """Find PENDING tasks in DB and schedule them (useful after restart)."""
+    pending = list(agent_tasks.find({"status": "PENDING"}))
+    for t in pending:
+        schedule_agent_task(t["_id"])
+
+
+def _execute_task_by_id(task_id: ObjectId) -> None:
+    """Fetch and execute a task by ID."""
+    task = agent_tasks.find_one({"_id": task_id})
+    if not task or task.get("status") != "PENDING":
+        return
+        
+    logger.info("Executing task %s (%s)", task_id, task["task_type"])
+    if task["task_type"] == "PROXY_CALL":
+        _execute_proxy_call_task(task)
+    elif task["task_type"] == "CALL_USER":
+        _execute_call_user_task(task)
+    elif task["task_type"] == "COMMITMENT_CHECK":
+        _execute_commitment_check_task(task)
+    else:
+        agent_tasks.update_one({"_id": task_id}, {"$set": {"status": "COMPLETED", "error_message": "Unknown type"}})
+
+
+def _fire_nudge(log_id: ObjectId) -> None:
+    """Fire the engagement nudge for a specific log."""
+    from chanakya.db.mongo import interaction_logs, checkpoints as cp_col
+    
+    log = interaction_logs.find_one({"_id": log_id})
+    if not log or log.get("user_response"):
+        return # Already handled or missing
+
+    uid = log["user_id"]
+    user_doc = users.find_one({"_id": uid})
+    if not user_doc or not user_doc.get("active"):
+        return
+
+    # Check if this is a persistent nudge (e.g. Wake up)
+    cp = None
+    if log.get("checkpoint_id"):
+        cp = cp_col.find_one({"_id": log["checkpoint_id"]})
+
+    # Logic: 1st nudge is text, 2nd+ is CALL
+    is_persistent = cp.get("persistent_nudge", False) if cp else False
+    nudge_count = log.get("nudge_count", 0) + 1
+    
+    # Update log state
+    interaction_logs.update_one({"_id": log_id}, {"$inc": {"nudge_count": 1}})
+
+    if is_persistent or nudge_count >= 2:
+        # Escalate to CALL
+        text = f"Dharma Violation. You have ignored my guidance. I am calling to correct your path."
+        if is_persistent:
+            text = f"Persistent Nudge: {cp.get('display_name')}. Respond now to stop these calls."
+            
+        task_id = agent_tasks.insert_one({
+            "user_id": uid, "task_type": "CALL_USER", "status": "PENDING",
+            "payload": {"opening_text": text, "log_id": str(log_id)},
+            "created_at": datetime.utcnow()
+        }).inserted_id
+        schedule_agent_task(task_id)
+        
+        # Schedule the NEXT persistent nudge if applicable
+        if is_persistent:
+            interval = cp.get("persistent_nudge_interval_minutes", 5)
+            schedule_engagement_nudge(log_id, interval)
+            
+    else:
+        # First warning via Telegram Text
+        async def _send():
+            from telegram import Bot
+            from chanakya.config import TELEGRAM_BOT_TOKEN
+            msg = "⚔️ <b>Dharma Monitor</b>\nDelay is the silent killer of empires. Respond now."
+            await Bot(token=TELEGRAM_BOT_TOKEN).send_message(chat_id=user_doc["telegram_id"], text=msg, parse_mode="HTML")
+            # Schedule next nudge in 15 mins
+            schedule_engagement_nudge(log_id, 15)
+        
+        _run_async(_send())
+
+
+def _run_async(coro):
+    """Run a coroutine from a sync background thread."""
+    try:
+        import asyncio
+        loop = asyncio.get_event_loop()
+        if loop.is_running(): asyncio.ensure_future(coro)
+        else: asyncio.run(coro)
+    except: asyncio.run(coro)
+
 
 def _execute_proxy_call_task(task: dict) -> None:
     """Execute a PROXY_CALL task."""
@@ -43,6 +174,7 @@ def _execute_proxy_call_task(task: dict) -> None:
         if not user_doc:
             raise Exception("User not found.")
 
+        from chanakya.db.mongo import get_contact_by_name
         contact = get_contact_by_name(user_id, contact_name)
         if not contact:
             raise Exception(f"No contact named '{contact_name}' found.")
@@ -122,8 +254,8 @@ def _execute_proxy_call_task(task: dict) -> None:
 
     except Exception as exc:
         logger.error(f"Failed to execute PROXY_CALL task {task['_id']}: {exc}")
-        # Mark as failed to allow retry
         _mark_task_failed(task, str(exc))
+
 
 def _execute_call_user_task(task: dict) -> None:
     """Execute a CALL_USER task."""
@@ -198,6 +330,7 @@ def _execute_call_user_task(task: dict) -> None:
         logger.error(f"Failed to execute CALL_USER task {task['_id']}: {exc}")
         _mark_task_failed(task, str(exc))
 
+
 def _execute_commitment_check_task(task: dict) -> None:
     """Follow up on a user commitment."""
     try:
@@ -217,13 +350,11 @@ def _execute_commitment_check_task(task: dict) -> None:
 
         from telegram import Bot
         from chanakya.config import TELEGRAM_BOT_TOKEN
-        bot = Bot(token=TELEGRAM_BOT_TOKEN)
         
-        asyncio.run(bot.send_message(
-            chat_id=user_doc["telegram_id"],
-            text=message,
-            parse_mode="HTML"
-        ))
+        async def _send():
+            bot = Bot(token=TELEGRAM_BOT_TOKEN)
+            await bot.send_message(chat_id=user_doc["telegram_id"], text=message, parse_mode="HTML")
+        _run_async(_send())
 
         agent_tasks.update_one(
             {"_id": task["_id"]},
@@ -235,28 +366,28 @@ def _execute_commitment_check_task(task: dict) -> None:
         logger.error(f"Failed to execute COMMITMENT_CHECK task {task['_id']}: {exc}")
         _mark_task_failed(task, str(exc))
 
+
 def _mark_task_failed(task: dict, error_message: str):
     retries = task.get("retries_attempted", 0) + 1
     max_retries = task.get("max_retries", 3)
     
     status = "FAILED"
     if retries >= max_retries:
-        status = "COMPLETED" # Giving up permanently
-        # Notify user it failed permanently
+        status = "COMPLETED"
         try:
             from telegram import Bot
             from chanakya.config import TELEGRAM_BOT_TOKEN
             user_doc = users.find_one({"_id": task["user_id"]})
             if user_doc and user_doc.get("telegram_id"):
-                bot = Bot(token=TELEGRAM_BOT_TOKEN)
-                task_name = task.get("task_type")
-                asyncio.run(bot.send_message(
-                    chat_id=user_doc["telegram_id"],
-                    text=f"⚠️ <b>Task Failed Permanently</b>\nTask: {task_name}\nError: {error_message[:200]}",
-                    parse_mode="HTML"
-                ))
-        except Exception as e:
-            logger.error(f"Could not send failure notification for task {task['_id']}: {e}")
+                async def _send():
+                    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+                    await bot.send_message(
+                        chat_id=user_doc["telegram_id"],
+                        text=f"⚠️ <b>Task Failed Permanently</b>\nTask: {task.get('task_type')}\nError: {error_message[:200]}",
+                        parse_mode="HTML"
+                    )
+                _run_async(_send())
+        except: pass
             
     agent_tasks.update_one(
         {"_id": task["_id"]},
@@ -269,104 +400,4 @@ def _mark_task_failed(task: dict, error_message: str):
             }
         }
     )
-
-def monitor_engagement() -> None:
-    """Detect avoidance behavior (stale checkpoints) and trigger nudges."""
-    now = datetime.utcnow()
-    # Find logs where user hasn't responded for > 15 mins
-    # Only nudge once (nudge_sent != True)
-    stale_threshold = now - timedelta(minutes=15)
-    stale_logs = list(interaction_logs.find({
-        "user_response": None,
-        "timestamp": {"$lt": stale_threshold},
-        "trigger_type": "CHECKPOINT",
-        "$or": [
-            {"nudge_sent": {"$ne": True}},
-            {"call_escalated": {"$ne": True}}
-        ]
-    }))
-
-    for log in stale_logs:
-        uid = log["user_id"]
-        user_doc = users.find_one({"_id": uid})
-        if not user_doc or not user_doc.get("telegram_id"):
-            continue
-
-        # If already nudged once, escalate to CALL
-        if log.get("nudge_sent"):
-            # Check if 30 mins have passed since original checkpoint
-            escalation_threshold = now - timedelta(minutes=30)
-            if log["timestamp"] < escalation_threshold and not log.get("call_escalated"):
-                # Schedule a CALL_USER task
-                opening_text = (
-                    "Dharma requires presence. You have ignored my messages for 30 minutes. "
-                    "I am calling to ensure your focus has not drifted. Respond now."
-                )
-                agent_tasks.insert_one({
-                    "user_id": uid,
-                    "task_type": "CALL_USER",
-                    "status": "PENDING",
-                    "payload": {"opening_text": opening_text},
-                    "created_at": now,
-                    "last_attempted_at": None,
-                    "retries_attempted": 0
-                })
-                interaction_logs.update_one({"_id": log["_id"]}, {"$set": {"call_escalated": True}})
-                logger.info("Engagement escalated to CALL for user %s for log %s", uid, log["_id"])
-            continue
-
-        # Send Telegram nudge (First warning)
-        try:
-            from telegram import Bot
-            from chanakya.config import TELEGRAM_BOT_TOKEN
-            bot = Bot(token=TELEGRAM_BOT_TOKEN)
-            
-            msg = (
-                "⚔️ <b>Dharma Monitor</b>\n"
-                "I am waiting for your response to the last checkpoint. "
-                "Delay is the silent killer of empires. Respond now."
-            )
-            # Use a helper or run in new loop to avoid blocking
-            asyncio.run(bot.send_message(
-                chat_id=user_doc["telegram_id"],
-                text=msg,
-                parse_mode="HTML"
-            ))
-            
-            interaction_logs.update_one({"_id": log["_id"]}, {"$set": {"nudge_sent": True}})
-            logger.info("Engagement nudge sent to user %s for log %s", uid, log["_id"])
-        except Exception as e:
-            logger.error("Failed to send engagement nudge: %s", e)
-
-def run_tasks() -> None:
-    now = datetime.utcnow()
-    
-    # Recover crashed RUNNING tasks (older than 10 mins)
-    cutoff_running = now - timedelta(minutes=10)
-    crashed_tasks = agent_tasks.find({"status": "RUNNING", "last_attempted_at": {"$lt": cutoff_running}})
-    for ct in crashed_tasks:
-        logger.warning(f"Task {ct['_id']} seems to have crashed (stuck in RUNNING). Marking as FAILED for retry.")
-        _mark_task_failed(ct, "Task timed out or app crashed while running.")
-
-    # Process PENDING tasks and FAILED tasks eligible for retry (wait 2 mins before retry)
-    cutoff_failed = now - timedelta(minutes=2)
-    
-    tasks_to_run = list(agent_tasks.find({
-        "$or": [
-            {"status": "PENDING"},
-            {"status": "FAILED", "retries_attempted": {"$lt": 3}, "last_attempted_at": {"$lt": cutoff_failed}},
-        ]
-    }).sort("created_at", 1))
-
-    for task in tasks_to_run:
-        logger.info(f"Task Manager picked up task {task['_id']} ({task['task_type']})")
-        if task["task_type"] == "PROXY_CALL":
-            _execute_proxy_call_task(task)
-        elif task["task_type"] == "CALL_USER":
-            _execute_call_user_task(task)
-        elif task["task_type"] == "COMMITMENT_CHECK":
-            _execute_commitment_check_task(task)
-        else:
-            logger.warning(f"Unknown task type: {task['task_type']}")
-            agent_tasks.update_one({"_id": task["_id"]}, {"$set": {"status": "COMPLETED", "error_message": "Unknown task type."}})
 
