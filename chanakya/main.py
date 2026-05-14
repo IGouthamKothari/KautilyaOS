@@ -21,6 +21,7 @@ from chanakya.integrations.twilio_webhooks import router as twilio_router
 from chanakya.io_logger import log_input
 from chanakya.scheduler.checkpoint_runner import start_runner, stop_runner
 from chanakya.scheduler.task_runner import start_task_runner, stop_task_runner
+from chanakya.api.test_endpoints import router as test_router
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,7 @@ def create_fastapi_app() -> FastAPI:
     """
     app = FastAPI(title="Chanakya Bot", version="1.0.0", lifespan=lifespan)
     app.include_router(twilio_router)
+    app.include_router(test_router)
 
     # Static UI
     static_path = os.path.join(os.path.dirname(__file__), "static")
