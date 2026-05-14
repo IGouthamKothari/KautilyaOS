@@ -113,9 +113,6 @@ async def lifespan(app: FastAPI):
             WEBHOOK_URL
         )
 
-    # Perform startup audit (Guru's Awakening)
-    from chanakya.bot.telegram_bot import perform_startup_audit
-    asyncio.ensure_future(perform_startup_audit(application))
 
     logger.info("Chanakya is watching. Webhook Active: %s", webhook_url)
     

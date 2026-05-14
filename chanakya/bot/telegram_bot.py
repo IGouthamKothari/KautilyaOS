@@ -294,32 +294,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             os.remove(tmp_path)
 
 
-async def perform_startup_audit(application: Application = None) -> None:
-    """Proactive system check on boot. Waits 30s for server stability."""
-    await _asyncio.sleep(30)
-    try:
-        user = users.find_one({"active": True})
-        if not user or not user.get("telegram_id"):
-            return
-
-        telegram_id = user["telegram_id"]
-        logger.info("🚀 Starting Guru's Awakening LITE Audit for %s", telegram_id)
-        
-        # LITE prompt: Skip heavy tools during boot spike
-        lite_input = "SYSTEM: Perform a LITE startup temporal check. Do NOT call tools. Just check the time and scold if needed."
-        
-        response_text = await _asyncio.wait_for(
-            generic_process_message(user, lite_input, channel="SYSTEM"),
-            timeout=45.0
-        )
-        
-        if application and response_text:
-            await application.bot.send_message(chat_id=telegram_id, text=_md_to_html(response_text), parse_mode="HTML")
-            logger.info("✅ Proactive startup alert sent.")
-    except _asyncio.TimeoutError:
-        logger.warning("Startup audit timed out. Chanakya will catch up in the next cycle.")
-    except Exception as exc:
-        logger.error("Startup audit failed: %s", exc)
 
 
 def build_application() -> Application:
