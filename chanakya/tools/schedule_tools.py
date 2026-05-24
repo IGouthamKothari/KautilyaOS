@@ -20,6 +20,7 @@ Each tool validates inputs, writes an ai_tool_calls audit document,
 and returns a plain confirmation string or descriptive error string.
 """
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timedelta
@@ -1063,7 +1064,21 @@ def call_user(user_id: str) -> str:
     from chanakya.agent.context_assembler import ContextAssembler
     try:
         assembler = ContextAssembler()
-        ctx = assembler.build(user_doc, "MENTOR_TALK", None)
+        # ContextAssembler.build is async — run it safely from this sync context
+        try:
+            _loop = asyncio.get_running_loop()
+        except RuntimeError:
+            _loop = None
+
+        if _loop is not None and _loop.is_running():
+            # We're inside an async context — can't use asyncio.run(), use a thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, assembler.build(user_doc, "MENTOR_TALK", None))
+                ctx = future.result(timeout=5)
+        else:
+            ctx = asyncio.run(assembler.build(user_doc, "MENTOR_TALK", None))
+
         tier1 = ctx.get("tier1") or {}
         opening_text = (
             f"Chanakya here. Your streak is {tier1.get('streak_count', 0)} days. "
@@ -1565,13 +1580,41 @@ def send_telegram_message(user_id: str, message: str) -> str:
                 raise
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're inside the async agent loop — schedule fire-and-forget.
-            # run_coroutine_threadsafe would deadlock here (same thread).
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is not None and running_loop.is_running():
+            # We're inside the async agent loop on this thread — fire-and-forget.
             asyncio.ensure_future(_send())
         else:
-            loop.run_until_complete(_send())
+            # Background thread (APScheduler, Twilio webhook thread, etc.)
+            # Find the main event loop and schedule the coroutine on it.
+            import threading
+            main_loop = None
+            for thread in threading.enumerate():
+                if hasattr(thread, "_target") and thread._target is not None:
+                    pass
+                loop_attr = getattr(thread, "_asyncio_loop", None)
+                if loop_attr is not None and loop_attr.is_running():
+                    main_loop = loop_attr
+                    break
+
+            if main_loop is None:
+                # Last resort: try the global event loop policy
+                try:
+                    main_loop = asyncio.get_event_loop_policy().get_event_loop()
+                except RuntimeError:
+                    main_loop = None
+
+            if main_loop is not None and main_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(_send(), main_loop)
+                future.result(timeout=10)  # wait up to 10s
+            else:
+                # No running loop anywhere — create a fresh one just for this call
+                asyncio.run(_send())
+
         result = f"Message sent to {user_doc.get('name', 'user')} on Telegram."
         _write_audit(uid, "send_telegram_message", {"message": message[:100]}, result)
         return result
