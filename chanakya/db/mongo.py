@@ -139,6 +139,8 @@ daily_events = db["daily_events"]   # date-specific schedule entries & reminders
 agent_tasks = db["agent_tasks"]
 voice_sessions = db["voice_sessions"]
 rituals = db["rituals"]
+chat_messages = db["chat_messages"]  # per-user conversation history for LLM context
+goals = db["goals"]  # GOAP-inspired goal tracking with milestones
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +242,12 @@ def create_indexes() -> None:
     rituals.create_index(
         [("user_id", pymongo.ASCENDING), ("category", pymongo.ASCENDING), ("timestamp", pymongo.DESCENDING)],
         name="rituals_user_category_timestamp",
+    )
+
+    # --- chat_messages ---
+    chat_messages.create_index(
+        [("user_id", pymongo.ASCENDING), ("timestamp", pymongo.DESCENDING)],
+        name="chat_messages_user_timestamp",
     )
 
     logger.info("All MongoDB indexes created (or already exist).")
@@ -472,6 +480,9 @@ def add_mindset_entry(
     category: str,
     text: str,
     source: str = "",
+    raw_input: str = "",
+    triggers: list[str] | None = None,
+    active: bool = True,
 ) -> int:
     """Append a typed mindset entry. Invalidates cache. Returns new total count."""
     from datetime import datetime as _dt
@@ -484,6 +495,10 @@ def add_mindset_entry(
         "category": category,
         "text": text.strip(),
         "source": source.strip(),
+        "raw_input": raw_input.strip() if raw_input else "",
+        "triggers": triggers or [],
+        "active": active,
+        "times_invoked": 0,
         "added_at": _dt.utcnow(),
     }
 
@@ -531,6 +546,46 @@ def clear_mindset_entries(user_id: ObjectId) -> None:
     _invalidate_identity_cache(user_id)
 
 
+def get_mindset_entry_by_index(user_id: ObjectId, index: int) -> dict | None:
+    """Return a single mindset entry by 0-based index, or None."""
+    doc = personal_instructions.find_one({"user_id": user_id})
+    if not doc:
+        return None
+    items = doc.get("mindset", [])
+    if index < 0 or index >= len(items):
+        return None
+    return items[index]
+
+
+def update_mindset_entry(user_id: ObjectId, index: int, updates: dict) -> bool:
+    """Update specific fields of a mindset entry at given index. Returns True if updated."""
+    from datetime import datetime as _dt
+
+    doc = personal_instructions.find_one({"user_id": user_id})
+    if not doc:
+        return False
+    items = doc.get("mindset", [])
+    if index < 0 or index >= len(items):
+        return False
+
+    allowed_fields = {"text", "category", "source", "raw_input", "triggers", "active"}
+    for key, value in updates.items():
+        if key in allowed_fields:
+            items[index][key] = value
+
+    personal_instructions.update_one(
+        {"user_id": user_id},
+        {"$set": {"mindset": items, "updated_at": _dt.utcnow()}},
+    )
+    _invalidate_identity_cache(user_id)
+    return True
+
+
+def toggle_mindset_entry(user_id: ObjectId, index: int, active: bool) -> bool:
+    """Enable or disable a mindset entry. Returns True if toggled."""
+    return update_mindset_entry(user_id, index, {"active": active})
+
+
 def get_all_identity_context(user_id: ObjectId) -> dict:
     """Return both flat instructions and typed mindset entries.
 
@@ -551,6 +606,181 @@ def get_all_identity_context(user_id: ObjectId) -> dict:
     logger.debug("Identity cache populated for user %s (%d instructions, %d mindset entries)",
                  user_id, len(result["instructions"]), len(result["mindset"]))
     return result
+
+
+# ---------------------------------------------------------------------------
+# Chat history helpers
+# ---------------------------------------------------------------------------
+
+
+def store_chat_message(
+    user_id: ObjectId,
+    role: str,
+    content: str,
+    channel: str = "text",
+) -> None:
+    """Store a message in the chat history for later retrieval."""
+    from datetime import datetime as _dt
+    chat_messages.insert_one({
+        "user_id": user_id,
+        "role": role,
+        "content": content,
+        "channel": channel,
+        "timestamp": _dt.utcnow(),
+    })
+
+
+def get_recent_messages(user_id: ObjectId, limit: int = 5) -> list[dict]:
+    """Fetch the last N messages for a user, oldest-first."""
+    docs = list(
+        chat_messages.find(
+            {"user_id": user_id},
+            sort=[("timestamp", pymongo.DESCENDING)],
+            limit=limit,
+        )
+    )
+    docs.reverse()
+    return [{"role": d["role"], "content": d["content"]} for d in docs]
+
+
+def get_message_count(user_id: ObjectId) -> int:
+    """Return total stored messages for a user."""
+    return chat_messages.count_documents({"user_id": user_id})
+
+
+def trim_old_messages(user_id: ObjectId, keep: int = 10) -> int:
+    """Delete messages older than the most recent `keep` messages. Returns count deleted."""
+    docs = list(
+        chat_messages.find(
+            {"user_id": user_id},
+            sort=[("timestamp", pymongo.DESCENDING)],
+            limit=keep,
+            projection={"_id": 1},
+        )
+    )
+    if len(docs) < keep:
+        return 0
+    keep_ids = [d["_id"] for d in docs]
+    result = chat_messages.delete_many(
+        {"user_id": user_id, "_id": {"$nin": keep_ids}}
+    )
+    return result.deleted_count
+
+
+# ---------------------------------------------------------------------------
+# Goals — GOAP-inspired tracking
+# ---------------------------------------------------------------------------
+
+
+def create_goal(
+    user_id: ObjectId,
+    title: str,
+    description: str = "",
+    category: str = "general",
+    target_date: str | None = None,
+    milestones: list[dict] | None = None,
+) -> str:
+    """Create a new goal with optional milestones. Returns the goal ID as string."""
+    from datetime import datetime as _dt
+
+    doc = {
+        "user_id": user_id,
+        "title": title,
+        "description": description,
+        "category": category,
+        "status": "active",
+        "progress": 0,
+        "target_date": target_date,
+        "milestones": milestones or [],
+        "notes": [],
+        "created_at": _dt.utcnow(),
+        "updated_at": _dt.utcnow(),
+    }
+    result = goals.insert_one(doc)
+    return str(result.inserted_id)
+
+
+def get_goals(user_id: ObjectId, status: str | None = None) -> list[dict]:
+    """Get all goals for a user, optionally filtered by status."""
+    query: dict = {"user_id": user_id}
+    if status:
+        query["status"] = status
+    docs = list(goals.find(query, sort=[("created_at", -1)]))
+    for d in docs:
+        d["_id"] = str(d["_id"])
+        d.pop("user_id", None)
+    return docs
+
+
+def get_goal_by_id(user_id: ObjectId, goal_id: str) -> dict | None:
+    """Get a specific goal by ID."""
+    from bson import ObjectId as _OID
+    try:
+        doc = goals.find_one({"_id": _OID(goal_id), "user_id": user_id})
+    except Exception:
+        return None
+    if doc:
+        doc["_id"] = str(doc["_id"])
+        doc.pop("user_id", None)
+    return doc
+
+
+def update_goal_progress(
+    user_id: ObjectId,
+    goal_id: str,
+    progress: int | None = None,
+    note: str | None = None,
+    milestone_index: int | None = None,
+    milestone_done: bool = True,
+) -> bool:
+    """Update goal progress, add a note, or mark a milestone complete."""
+    from bson import ObjectId as _OID
+    from datetime import datetime as _dt
+
+    try:
+        oid = _OID(goal_id)
+    except Exception:
+        return False
+
+    updates: dict = {"$set": {"updated_at": _dt.utcnow()}}
+
+    if progress is not None:
+        updates["$set"]["progress"] = min(max(progress, 0), 100)
+        if progress >= 100:
+            updates["$set"]["status"] = "completed"
+            updates["$set"]["completed_at"] = _dt.utcnow()
+
+    if note:
+        if "$push" not in updates:
+            updates["$push"] = {}
+        updates["$push"]["notes"] = {"text": note, "at": _dt.utcnow()}
+
+    result = goals.update_one({"_id": oid, "user_id": user_id}, updates)
+
+    if milestone_index is not None and result.modified_count > 0 or milestone_index is not None:
+        goals.update_one(
+            {"_id": oid, "user_id": user_id},
+            {"$set": {f"milestones.{milestone_index}.done": milestone_done}},
+        )
+
+    return result.modified_count > 0 or milestone_index is not None
+
+
+def abandon_goal(user_id: ObjectId, goal_id: str, reason: str = "") -> bool:
+    """Mark a goal as abandoned."""
+    from bson import ObjectId as _OID
+    from datetime import datetime as _dt
+
+    try:
+        oid = _OID(goal_id)
+    except Exception:
+        return False
+
+    result = goals.update_one(
+        {"_id": oid, "user_id": user_id},
+        {"$set": {"status": "abandoned", "abandon_reason": reason, "updated_at": _dt.utcnow()}},
+    )
+    return result.modified_count > 0
 
 
 # ---------------------------------------------------------------------------

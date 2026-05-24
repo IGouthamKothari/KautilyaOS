@@ -191,7 +191,7 @@ async def update_conversation_context(
     )
 
     try:
-        from chanakya.config import OPENAI_API_KEY, LLM_MODEL_NAME
+        from chanakya.config import OPENAI_API_KEY, UTILITY_MODEL_NAME
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -200,7 +200,7 @@ async def update_conversation_context(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": LLM_MODEL_NAME,
+                    "model": UTILITY_MODEL_NAME,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_completion_tokens": 120,
                     "temperature": 0.3,
@@ -337,6 +337,50 @@ def _get_personal_instructions_for_context(user: dict) -> list[str] | None:
         return None
 
 
+def _get_active_goals(user: dict) -> list[dict] | None:
+    """Fetch active goals for injection into system prompt."""
+    try:
+        from chanakya.db.mongo import get_goals
+        active = get_goals(user["_id"], status="active")
+        if not active:
+            return None
+        result = []
+        for g in active[:5]:  # Max 5 goals in context
+            milestones_done = sum(1 for m in g.get("milestones", []) if m.get("done"))
+            milestones_total = len(g.get("milestones", []))
+            entry = {
+                "title": g["title"],
+                "progress": g.get("progress", 0),
+                "target_date": g.get("target_date"),
+            }
+            if milestones_total:
+                entry["milestones"] = f"{milestones_done}/{milestones_total}"
+            result.append(entry)
+        return result
+    except Exception as exc:
+        logger.warning("Failed to fetch active goals: %s", exc)
+        return None
+
+
+def _get_learned_patterns(user: dict) -> list[str] | None:
+    """Extract learned behavioral patterns for injection into system prompt."""
+    patterns = user.get("learned_patterns")
+    if not patterns:
+        return None
+    result = []
+    for p in patterns[-10:]:  # Only inject most recent 10
+        if isinstance(p, dict):
+            ptype = p.get("type", "")
+            text = p.get("text", "")
+            if ptype == "effective":
+                result.append(f"[WORKS] {text}")
+            elif ptype == "ineffective":
+                result.append(f"[AVOID] {text}")
+            else:
+                result.append(f"[PATTERN] {text}")
+    return result if result else None
+
+
 # ---------------------------------------------------------------------------
 # Task 7 — Tier 1: Core Identity
 # ---------------------------------------------------------------------------
@@ -391,6 +435,10 @@ def _build_tier1(user: dict) -> dict:
         "identity_context": _get_identity_context_for_prompt(user),
         # Health & Ritual logs (Sleep, Mood, Energy, etc.)
         "last_rituals": user.get("last_ritual") or {},
+        # Learned patterns from self-learning loop (what works, what doesn't)
+        "learned_patterns": _get_learned_patterns(user),
+        # Active goals with progress
+        "active_goals": _get_active_goals(user),
     }
 
 

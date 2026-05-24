@@ -1,12 +1,13 @@
 """
-chanakya_agent.py — LangChain agent wrapper.
+chanakya_agent.py — LangChain agent with native tool calling and conversation memory.
 
-Uses gpt-5.4-nano-2026-03-17 directly via the OpenAI API.
+Uses gpt-5-mini with native tool calling for intelligent decision-making.
 Returns a structured LLMDecision on every invocation.
 
-Architecture contract (Req 25 — LLM-as-Brain):
-  - Server assembles context → sends to LLM → LLM returns LLMDecision
-  - Server NEVER makes decisions based on metric thresholds
+Architecture:
+  - Server assembles context → builds message history → LLM reasons with tools
+  - LLM calls tools natively (no JSON parsing from free text)
+  - After tool rounds complete, LLM produces structured LLMDecision
   - All decisions (verdict, streak changes, escalation, tone) come from the LLM
 """
 
@@ -20,6 +21,12 @@ from typing import Any
 
 from bson import ObjectId
 from langchain_openai import ChatOpenAI
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 from chanakya.agent.context_assembler import ContextAssembler
 from chanakya.agent.privacy_scrubber import (
@@ -28,7 +35,7 @@ from chanakya.agent.privacy_scrubber import (
     scrub_recursive,
     unscrub_response,
 )
-from chanakya.config import OPENAI_API_KEY, LLM_MODEL_NAME
+from chanakya.config import OPENAI_API_KEY, LLM_MODEL_NAME, UTILITY_MODEL_NAME
 from chanakya.io_logger import Timer, log_llm
 from chanakya.models.llm_decision import ActionItem, LLMDecision
 from chanakya.tools.schedule_tools import ALL_TOOLS
@@ -36,19 +43,32 @@ from chanakya.tools.schedule_tools import ALL_TOOLS
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# LLM model — loaded from config
+# LLM models
 # ---------------------------------------------------------------------------
 
 MODEL = LLM_MODEL_NAME
+UTILITY_MODEL = UTILITY_MODEL_NAME
+
+_TOOL_MAP = {t.name: t for t in ALL_TOOLS}
 
 
 def _make_llm(model: str = MODEL) -> ChatOpenAI:
-    """Create a ChatOpenAI instance pointing at OpenAI."""
+    """Create a ChatOpenAI instance with tool calling support."""
     return ChatOpenAI(
         api_key=OPENAI_API_KEY,
         model=model,
         temperature=0.7,
-        max_completion_tokens=2048,
+        max_completion_tokens=4096,
+    )
+
+
+def _make_utility_llm() -> ChatOpenAI:
+    """Create a cheap LLM for utility tasks (summarization)."""
+    return ChatOpenAI(
+        api_key=OPENAI_API_KEY,
+        model=UTILITY_MODEL,
+        temperature=0.3,
+        max_completion_tokens=500,
     )
 
 
@@ -235,38 +255,51 @@ def _build_system_prompt(context: dict, user: dict) -> str:
         for i, instruction in enumerate(personal, 1):
             sections.append(f"{i}. {instruction}")
 
-    # Typed mindset/identity entries — injected by category
+    # Dharma Constitution — active decision criteria from accumulated wisdom
     identity = tier1.get("identity_context") or {}
     mindset_entries = identity.get("mindset") or []
     if mindset_entries:
-        # Group by category
         from collections import defaultdict
         by_cat: dict = defaultdict(list)
         for entry in mindset_entries:
             if isinstance(entry, dict):
+                # Skip disabled entries
+                if not entry.get("active", True):
+                    continue
                 by_cat[entry.get("category", "note")].append(entry)
 
         category_labels = {
-            "quote":     "QUOTES TO EMBODY",
-            "goal":      "LIFE GOALS",
-            "trait":     "CHARACTER TRAITS TO BUILD",
-            "rule":      "PERSONAL RULES",
-            "reference": "REFERENCES — USE THESE WHEN RELEVANT",
-            "note":      "ADDITIONAL CONTEXT",
+            "rule":      "RULES — Non-negotiable principles (apply to every decision)",
+            "trait":     "TRAITS — Embody these in tone and advice",
+            "goal":      "GOALS — What we are building toward",
+            "quote":     "QUOTES — Use when they land with force",
+            "reference": "REFERENCES — Stories to invoke when relevant",
+            "note":      "CONTEXT — Additional knowledge",
         }
+
         sections.append("")
-        sections.append("=== GOUTHAM'S MINDSET & IDENTITY (live in this, always) ===")
+        sections.append(f"=== DHARMA CONSTITUTION (ACTIVE DECISION CRITERIA) ===")
+        sections.append(f"These are {name}'s accumulated wisdom — learned from life, reels, books, mentors.")
+        sections.append("BEFORE EVERY RESPONSE, check these principles:")
+        sections.append("- If any principle below is RELEVANT to what the user said → REFERENCE IT directly")
+        sections.append("- If your response CONTRADICTS any principle → REVISE before sending")
+        sections.append("- When the user is struggling, the right principle here is your WEAPON — use it")
+        sections.append("- Never give advice that violates these principles")
+
         for cat, label in category_labels.items():
             entries = by_cat.get(cat, [])
             if not entries:
                 continue
             sections.append(f"\n[{label}]")
-            for e in entries:
+            for i, e in enumerate(entries, 1):
                 text = e.get("text", "")
                 source = e.get("source", "")
-                line = f"  • {text}"
+                triggers = e.get("triggers", [])
+                line = f"  {i}. {text}"
                 if source:
                     line += f"  — {source}"
+                if triggers:
+                    line += f"\n     → INVOKE WHEN: {', '.join(triggers)}"
                 sections.append(line)
 
     tier2 = context.get("tier2")
@@ -288,139 +321,49 @@ def _build_system_prompt(context: dict, user: dict) -> str:
     sections.append("")
     sections.append(_format_templates(templates))
 
-    tool_list = "\n".join(f"  - {t.name}: {(t.description or '').splitlines()[0]}" for t in ALL_TOOLS)
-
     sections.append(f"""
-=== HOW TO CALL TOOLS ===
-When you need data or want to take an action, include a call_tool action in your response.
-The server will execute it, then call you again with the result so you can respond properly.
+=== TOOL USAGE GUIDELINES ===
+You have tools available via function calling. The user_id for all tool calls is: {user_id_str}
 
-TOOL CALL FORMAT — always use this exact structure:
-  {{"type": "call_tool", "params": {{"tool_name": "<name>", "tool_args": {{...}}}}}}
-
-The user_id for all tool calls is: {user_id_str}
-
-AVAILABLE TOOLS:
-{tool_list}
-
-TOOL USAGE RULES:
+Key patterns:
 - Schedule queries → fetch_day_schedule(user_id, date) — use "today"/"tomorrow"/YYYY-MM-DD
-- Past date log → get_day_log(user_id, date)
-- Add one-off event/reminder → add_day_event(user_id, date, time_str, activity, display_name, description, note)
-  • activity: CAPS_UNDERSCORE label e.g. "MEETING_KARTIK"
-  • display_name: clean readable name e.g. "Meeting with Kartik" — always derive from user's words
-  • description: 1-2 sentences on what this is and why it matters — always generate from context
-  • BEFORE adding: call fetch_day_schedule to check for conflicts at that time
-  • If it conflicts with LeetCode, gym, deep work, or sleep — flag it. Don't silently accept it.
-- Reschedule by name → reschedule_activity(user_id, activity, new_time, date) — PREFERRED for time changes
-  • Use this when user says "move gym to 7:30", "shift wake up to 7am", "gym later at 7:30"
-  • No event_id needed — finds by activity name automatically
-  • date defaults to "today", supports "tomorrow" or YYYY-MM-DD
-- Modify this date only → update_day_event(event_id, field, value, scope="this_date") — use when you have the id from fetch_day_schedule
-- Modify all weekdays → update_day_event(..., scope="all_weekdays") OR update_schedule_activity
-- Save contact → save_contact(user_id, name, phone, relationship)
-- Call user → call_user(user_id)
-- Proxy call → place_proxy_call(user_id, contact_name, topic)
-- Status → get_user_status(user_id)
-- Mindset → add_mindset_note / add_mindset_entry / get_mindset_notes / remove_mindset_note / clear_mindset_notes
-  • add_mindset_entry(user_id, category, text, source) — use for quotes, goals, traits, rules, references
-  • category: "quote" | "goal" | "trait" | "rule" | "reference" | "note"
-  • When user shares a quote, goal, or principle → detect it and call add_mindset_entry automatically
-  • source: who said it (e.g. "Harvey Specter", "Bhagavad Gita 2.47")
-- War mode on → activate_war_mode(user_id, duration_hours)
-- War mode off → deactivate_war_mode(user_id)
-- Phone → set_user_phone(user_id, phone)
-- Push message now → send_telegram_message(user_id, message) — send proactively at any time
-- Schedule message → schedule_message(user_id, message, send_at) — send at HH:MM today
+- Reschedule by name → reschedule_activity(user_id, activity, new_time, date)
+- Add event → FIRST call fetch_day_schedule to check conflicts, THEN add_day_event
+- When user shares a quote, goal, or principle → call add_mindset_entry automatically
+- "call me" → call_user. "call mom about X" → place_proxy_call
+- War Mode trigger → activate_war_mode for 24 hours
 
-=== RESPONSE FORMAT ===
-Always respond with a single valid JSON object — no markdown, no code fences, just raw JSON:
-{{
-  "verdict": "SUCCESS" | "FAILED" | "EXCUSED" | "WAR_MODE_OVERRIDE" | null,
-  "actions": [
-    {{"type": "call_tool", "params": {{"tool_name": "...", "tool_args": {{...}}}}}}
-  ],
-  "tone": "HARSH" | "MENTOR" | "NEUTRAL" | "CELEBRATORY",
-  "response_text": "message to send to user",
-  "reasoning": "your internal reasoning",
-  "streak_reset": false,
-  "model_used": "{MODEL}"
-}}
+=== CORE RULES ===
+1. Never say "It's okay." It is NOT okay. Never say "great" or "absolutely". You are not a chatbot.
+2. You decide ALL verdicts, streak changes, escalations, tone.
+3. Reference the Gita, Mahabharata, Ramayana, Indian history when it lands with force — not as decoration.
+4. **Temporal Awareness**: If the user is active during their Sleep Protocol hours, address it immediately.
+5. Be harsh when failure is repeated. Acknowledge genuine effort — briefly, then raise the bar.
+6. When you need data (schedule, status, contacts, logs) — call the tool first, then respond with data.
+7. You are a GURU, not an assistant. If the user mentions a plan that conflicts with their goals, say so directly. Never silently execute.
+8. When the user mentions any event/meeting: extract who/what/when/why, check schedule for conflicts, flag what they're giving up, only store after assessment.
+9. Brutal honesty is non-negotiable. Krishna did not soften truth for Arjuna. Neither do you.
+10. **Privacy Guard**: If user mentions a new person not in DE-IDENTIFIED list, nudge to add them to contacts.
+11. **Health Tracking**: Morning → ask SLEEP + ENERGY/MOOD. EOD → final assessment. Use log_ritual for health stats.
+12. **Council of Dharma**: For deep domain expertise, use consult_council (Kautilya=Finance, Charaka=Health, Vishvakarma=Tech).
 
-Other valid action types (besides call_tool):
-  increment_streak, reset_streak, update_longest_streak, apply_punishment,
-  request_clarification, update_interaction_log, update_activity_slot,
-  store_next_day_plan, confirm_next_day_plan, send_telegram
-
-FORMATTING for response_text:
+FORMATTING for your messages:
 - **bold** for emphasis, _italic_ for secondary
 - Plain bullet: • (not - or *)
 - No HTML tags, no # headings
 - Schedule lines: **HH:MM** — ACTIVITY (action, priority)
-
-=== CORE RULES ===
-1. Never say "It's okay." It is NOT okay. Never say "great" or "absolutely". You are not a chatbot.
-2. You decide ALL verdicts, streak changes, escalations, tone. Server executes.
-3. Reference the Gita, Mahabharata, Ramayana, and Indian warrior history when it lands with force — not as decoration.
-4. **Temporal Awareness**: You are aware of the Current Time. It is your primary instrument of discipline. If the user is awake and active at an hour that contradicts their Sleep Protocol (e.g., 1:00 AM), your response_text MUST address this immediately. Ask for the reason, cite the lack of discipline, and pivot back to the dharma only after the warning is delivered.
-5. Be harsh when failure is repeated. Acknowledge genuine effort — briefly, then raise the bar.
-5. NEVER tell the user to use a slash command. Handle everything via tools.
-6. When you need data to answer (schedule, status, contacts, logs) — call the tool first.
-   The server will give you the result and ask you to respond again.
-7. If the user says "call me" → call_user. If "call mom about X" → place_proxy_call.
-8. War Mode trigger word → activate_war_mode for 24 hours.
-9. You are a GURU, not an assistant. A guru guides, cautions, and stops the student when wrong.
-   - If the user mentions a plan that conflicts with their goals, say so directly.
-   - If they're about to waste time, call it out before storing anything.
-   - If a meeting or event cuts into LeetCode, gym, or deep work — flag the conflict explicitly.
-   - Never just silently execute. Always respond with your honest assessment first.
-10. When the user mentions any event, meeting, or plan in natural language:
-    - Extract: who, what, when, why
-    - Generate a clean display_name (e.g. "Meeting with Kartik") and description (what it is, why it matters)
-    - Check the schedule for that date/time first using fetch_day_schedule
-    - If there's a conflict, tell the user what they're giving up — then ask if they still want to proceed
-    - Only call add_day_event after this assessment
-11. Brutal honesty is non-negotiable. If the user is making a mistake, say it plainly.
-    Krishna did not soften the truth for Arjuna on the battlefield. Neither do you.
-    "It is better to perform one's own dharma imperfectly than to perform another's perfectly." — Gita 3.35
-    They all had one thing in common: they did not stop.
-13. **Privacy Guard (The Fortress)**: If the user mentions a new person, organization, or sensitive entity not listed in the 'DE-IDENTIFIED ENTITIES' section:
-    - Acknowledge the person/entity warmly in your response.
-    - Add a polite but firm nudge: "I've noticed you mentioned [Name]. Shall I add them to your private contacts? This ensures they are de-identified in my cloud brain, keeping your 'Privacy Fortress' airtight."
-    - Only call `save_contact` after the user confirms or explicitly asks you to remember them.
-14. **Ritual Discipline (Health Tracking)**: You are responsible for the user's vessel (the body/mind).
-    - **Morning Todo**: You MUST ask for the previous night's SLEEP (hours) and current ENERGY/MOOD (1-10).
-    - **EOD Report**: Ask for a final assessment of MOOD and ENERGY.
-    - **Proactive Adjustment**: Check `last_rituals` in the context. If you see low energy or bad sleep for 2+ days, adjust the plan (e.g. "You are running on empty. Skip the late-night LeetCode; prioritize 8 hours of sleep. Dharma requires a sharp blade.")
-    - Use `log_ritual` whenever they share health stats.
-15. **The Council of Dharma (Delegation)**: You are the Prime Minister, but you are not alone. You have a Cabinet of Experts:
-    - **Kautilya (Finance)**: For strategy, wealth, and ledger analysis.
-    - **Charaka (Health)**: For bio-hacking, sleep, and ritual trends.
-    - **Vishvakarma (Technology)**: For codebase, architecture, and engineering.
-    - If a query requires deep domain expertise, use `consult_council`. Provide a clear 'Briefing' to the expert.
-    - Synthesize their 'Council Report' into your final response. Never parrot them blindly; you are the final authority.
-    - You must include the user's ID when calling the council.
-""".replace("{user_id}", user_id_str))
+""".replace("{{user_id}}", user_id_str))
 
     return "\n".join(sections)
 
 
 # ---------------------------------------------------------------------------
-# LLM response parsing (Task 13.1)
+# LLM response parsing
 # ---------------------------------------------------------------------------
 
 
 def _parse_llm_decision(raw_response: str, model_used: str) -> LLMDecision | None:
-    """
-    Parse the LLM's raw text response into an LLMDecision.
-
-    Strategy:
-      1. Try to parse the full response as JSON.
-      2. Find all top-level JSON objects in the response, try each from largest to smallest.
-         This handles the case where the LLM outputs a stray tool-call object before the
-         main LLMDecision object (a known gpt-5.4-nano quirk).
-      3. If parsing fails: log raw response, return None.
-    """
+    """Parse the LLM's structured response into an LLMDecision."""
     def _try_parse(text: str) -> LLMDecision | None:
         try:
             data = json.loads(text.strip())
@@ -431,13 +374,11 @@ def _parse_llm_decision(raw_response: str, model_used: str) -> LLMDecision | Non
         except Exception:
             return None
 
-    # Step 1: try full response as JSON
     result = _try_parse(raw_response)
     if result:
         return result
 
-    # Step 2: find all top-level JSON objects, try largest first
-    # Walk the string tracking brace depth to extract each complete {...} block
+    # Find JSON objects in text (fallback for models that wrap in markdown)
     candidates: list[str] = []
     depth = 0
     start = -1
@@ -452,18 +393,62 @@ def _parse_llm_decision(raw_response: str, model_used: str) -> LLMDecision | Non
                 candidates.append(raw_response[start:i + 1])
                 start = -1
 
-    # Sort by length descending — the LLMDecision object is always the largest
     for candidate in sorted(candidates, key=len, reverse=True):
         result = _try_parse(candidate)
         if result:
             return result
 
-    # Step 3: parsing failed
-    logger.error(
-        "Failed to parse LLMDecision from raw response. Raw: %r",
-        raw_response[:500],
-    )
+    logger.error("Failed to parse LLMDecision. Raw: %r", raw_response[:500])
     return None
+
+
+# ---------------------------------------------------------------------------
+# Conversation history management
+# ---------------------------------------------------------------------------
+
+_DECISION_PROMPT = """Now produce your final assessment as a JSON object with these fields:
+{
+  "verdict": "SUCCESS" | "FAILED" | "EXCUSED" | "WAR_MODE_OVERRIDE" | null,
+  "actions": [{"type": "increment_streak"|"reset_streak"|"send_telegram", "params": {...}}],
+  "tone": "HARSH" | "MENTOR" | "NEUTRAL" | "CELEBRATORY",
+  "response_text": "your message to the user (use **bold**, _italic_, • bullets)",
+  "reasoning": "brief internal reasoning",
+  "streak_reset": false,
+  "model_used": ""
+}
+Only include actions for streak/state changes. Tool calls are already handled.
+If this is casual conversation with no checkpoint to judge, set verdict to null."""
+
+
+async def _compress_history(user: dict, messages: list[dict]) -> str:
+    """Compress older messages into a summary using the utility model."""
+    if not messages:
+        return ""
+
+    conversation_text = "\n".join(
+        f"{m['role']}: {m['content'][:200]}" for m in messages
+    )
+
+    prompt = (
+        "Compress this conversation into a concise summary (max 500 chars). "
+        "Focus on: decisions made, commitments given, open questions, emotional state, "
+        "and any schedule changes discussed. Drop greetings and filler.\n\n"
+        f"{conversation_text}\n\nSummary:"
+    )
+
+    try:
+        llm = _make_utility_llm()
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        summary = response.content.strip()[:600]
+        from chanakya.db.mongo import users as users_col
+        users_col.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"conversation_summary": summary}},
+        )
+        return summary
+    except Exception as exc:
+        logger.warning("History compression failed: %s", exc)
+        return user.get("conversation_summary") or ""
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +488,7 @@ def _push_telegram(user: dict, text: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def execute_actions(
+async def execute_actions(
     actions: list[ActionItem],
     user: dict,
     log_id: ObjectId | None,
@@ -643,7 +628,7 @@ def execute_actions(
                 )
 
             elif action_type == "call_tool":
-                _exec_call_tool(params, user, decision)
+                await _exec_call_tool(params, user, decision)
 
             elif action_type == "send_telegram":
                 text = params.get("text", "")
@@ -662,11 +647,11 @@ def execute_actions(
                     async def _send_v():
                         try:
                             from chanakya.integrations.elevenlabs_client import ElevenLabsClient
-                            from chanakya.config import ELEVENLABS_DEFAULT_VOICE_ID, TELEGRAM_BOT_TOKEN
+                            from chanakya.config import ELEVENLABS_VOICE_ID, TELEGRAM_BOT_TOKEN
                             from telegram import Bot
                             import io
 
-                            voice_id = user.get("elevenlabs_voice_id") or ELEVENLABS_DEFAULT_VOICE_ID
+                            voice_id = user.get("elevenlabs_voice_id") or ELEVENLABS_VOICE_ID
                             client = ElevenLabsClient()
                             audio_bytes = client.synthesise(text, voice_id)
                             
@@ -699,7 +684,7 @@ def execute_actions(
                         "Auto-promoting action type %r to call_tool for user %s",
                         action_type, user["_id"],
                     )
-                    _exec_call_tool(
+                    await _exec_call_tool(
                         {"tool_name": action_type, "tool_args": params},
                         user, decision,
                     )
@@ -759,7 +744,7 @@ def _exec_increment_streak(user: dict, users_collection: Any) -> None:
         )
 
 
-def _exec_call_tool(
+async def _exec_call_tool(
     params: dict,
     user: dict,
     decision: LLMDecision | None,
@@ -784,7 +769,7 @@ def _exec_call_tool(
     result_str = f"[error] tool {tool_name!r} not found"
     if tool_name in tool_map:
         try:
-            result = tool_map[tool_name].invoke(tool_args)
+            result = await tool_map[tool_name].ainvoke(tool_args)
             result_str = str(result)
             logger.info("Tool %r succeeded: %s", tool_name, result_str[:100])
         except Exception as exc:  # noqa: BLE001
@@ -811,9 +796,10 @@ def _exec_call_tool(
 
 class ChanakyaAgent:
     """
-    LangChain agent wrapper for Chanakya.
+    LangChain agent with native tool calling and conversation memory.
 
-    Instantiated fresh per interaction (stateless).
+    Uses gpt-5-mini with bind_tools() for structured tool invocation.
+    Maintains conversation history via chat_messages collection.
     """
 
     def __init__(self, user: dict) -> None:
@@ -828,156 +814,146 @@ class ChanakyaAgent:
         media_url: str | None = None,
     ) -> LLMDecision | None:
         """
-        Full agent invocation pipeline with multi-turn tool loop.
+        Full agent invocation pipeline with native tool calling.
 
-        Round 1: LLM sees user message → may request tool calls
-        Round 2+: Server runs tools, feeds results back → LLM responds with data
-        Max 3 tool rounds to prevent infinite loops.
-        Final round: execute non-tool actions, return decision.
+        1. Build context + conversation history
+        2. LLM reasons with bound tools (native function calling)
+        3. Execute tool calls, feed results back as ToolMessages
+        4. After tools complete, extract final LLMDecision
+        Max 5 tool rounds to prevent infinite loops.
         """
-        from langchain_core.messages import HumanMessage, SystemMessage
-
         user = self.user
-
-        # Tools that return data the LLM needs to formulate a response
-        DATA_TOOLS = {
-            "fetch_schedule", "fetch_day_schedule", "get_day_log",
-            "list_contacts", "get_user_status", "get_mindset_notes",
-        }
-        # Tools that take action and should confirm to the LLM
-        ACTION_TOOLS = {
-            "update_schedule_activity", "add_day_event", "update_day_event",
-            "delete_day_event", "save_contact", "delete_contact",
-            "set_user_phone", "place_proxy_call", "call_user",
-            "add_mindset_note", "remove_mindset_note", "clear_mindset_notes",
-            "set_morning_todo_time", "reload_prompt_templates",
-            "activate_war_mode", "deactivate_war_mode",
-            "modify_wakeup_time", "add_daily_checkpoint",
-            "update_morning_todo_time", "escalate_punishment",
-            "send_telegram_message", "schedule_message",
-            "add_mindset_entry", "cancel_scheduled_message",
-            "reschedule_activity",
-        }
-        ALL_FEEDBACK_TOOLS = DATA_TOOLS | ACTION_TOOLS
 
         # Step 1: Assemble context
         try:
             context = await self.assembler.build(user, interaction_type, session_context)
-            # Privacy Scrubbing: De-identify names/PII before they hit the cloud
             context = scrub_recursive(context, user["_id"])
         except Exception as exc:
             logger.error("Context assembly failed for user %s: %s", user.get("_id"), exc)
             context = {"tier1": {}, "tier2": None, "tier3": None, "tier4": None, "prompt_templates": {}}
 
         system_prompt = _build_system_prompt(context, user)
-        # Privacy Scrubbing: De-identify user's raw input
+
+        # Step 2: Build conversation history
         scrubbed_input = scrub_context(raw_input, user["_id"])
-        human_message = scrubbed_input
         if media_url:
-            human_message = f"{raw_input}\n[Media URL: {media_url}]"
+            scrubbed_input = f"{scrubbed_input}\n[Media URL: {media_url}]"
 
+        from chanakya.db.mongo import get_recent_messages, get_message_count
+
+        recent_msgs = get_recent_messages(user["_id"], limit=5)
+        conversation_summary = user.get("conversation_summary") or ""
+
+        # Compress if history is growing large
+        msg_count = get_message_count(user["_id"])
+        if msg_count > 10 and not conversation_summary:
+            from chanakya.db.mongo import get_recent_messages as _get
+            older_msgs = _get(user["_id"], limit=15)
+            if len(older_msgs) > 5:
+                to_compress = older_msgs[:-5]
+                conversation_summary = await _compress_history(user, to_compress)
+
+        # Build message array: system → summary → history → current
+        messages = [SystemMessage(content=system_prompt)]
+
+        if conversation_summary:
+            messages.append(SystemMessage(
+                content=f"CONVERSATION HISTORY SUMMARY (older messages):\n{conversation_summary}"
+            ))
+
+        for msg in recent_msgs:
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            else:
+                messages.append(AIMessage(content=msg["content"]))
+
+        messages.append(HumanMessage(content=scrubbed_input))
+
+        # Step 3: Native tool calling loop
         model_used: str = MODEL
-        decision: LLMDecision | None = None
-        tool_map = {t.name: t for t in ALL_TOOLS}
-        tool_map_names = set(tool_map.keys())
+        llm = _make_llm()
+        llm_with_tools = llm.bind_tools(ALL_TOOLS)
 
-        # Multi-turn tool loop — max 3 rounds
-        current_human = human_message
-        for round_num in range(1, 4):
-            # LLM call
-            raw_response: str | None = None
+        _t = Timer()
+
+        for round_num in range(1, 6):
             try:
-                llm = _make_llm()
-                messages = [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=current_human),
-                ]
-                _t = Timer()
-                response = await llm.ainvoke(messages)
-                raw_response = response.content
+                response = await llm_with_tools.ainvoke(messages)
                 _log_llm_attempt(user, MODEL, interaction_type, "success")
                 log_llm(
                     str(user.get("_id")), MODEL,
                     f"{interaction_type}:round{round_num}",
-                    current_human, raw_response,
+                    scrubbed_input[:200], (response.content or "")[:200],
                     latency_ms=_t.elapsed_ms(),
                 )
-                logger.info("LLM round %d succeeded for user %s", round_num, user.get("_id"))
             except Exception as exc:
                 logger.error("LLM round %d failed for user %s: %s", round_num, user.get("_id"), exc)
                 _log_llm_attempt(user, MODEL, interaction_type, str(exc))
+                return None
+
+            # Check for tool calls
+            if not response.tool_calls:
                 break
 
-            if raw_response is None:
-                break
+            # Execute each tool call and add results as ToolMessages
+            messages.append(response)
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"]
+                tool_args = dict(tool_call["args"])
 
-            decision = _parse_llm_decision(raw_response, model_used)
-            if decision is None:
-                break
+                # Auto-inject user_id
+                if "user_id" not in tool_args or not tool_args["user_id"]:
+                    tool_args["user_id"] = str(user["_id"])
 
-            # Collect tool calls from this round
-            tool_calls_this_round: list[tuple[str, dict]] = []  # (tool_name, tool_args)
-            non_tool_actions: list[ActionItem] = []
+                result_str = await _exec_call_tool(
+                    {"tool_name": tool_name, "tool_args": tool_args},
+                    user, None,
+                )
+                messages.append(ToolMessage(
+                    content=result_str,
+                    tool_call_id=tool_call["id"],
+                ))
+                logger.info("Tool %r executed in round %d for user %s",
+                            tool_name, round_num, user.get("_id"))
 
-            for action in decision.actions:
-                atype = action.type
-                aparams = action.params or {}
+            _t = Timer()
+        else:
+            logger.warning("Max tool rounds reached for user %s", user.get("_id"))
 
-                if atype == "call_tool":
-                    tname = aparams.get("tool_name", "")
-                    targs = aparams.get("tool_args") or {}
-                    tool_calls_this_round.append((tname, targs))
-                elif atype in tool_map_names:
-                    # LLM used tool name directly as action type — auto-promote
-                    tool_calls_this_round.append((atype, aparams))
-                else:
-                    non_tool_actions.append(action)
+        # Step 4: Extract final decision
+        # The last response should contain the conversational reply
+        final_text = response.content or ""
 
-            if not tool_calls_this_round:
-                # No tools needed — final answer
-                decision.actions = non_tool_actions
-                break
-
-            if round_num == 3:
-                # Last round — execute tools but don't loop again
-                for tname, targs in tool_calls_this_round:
-                    _exec_call_tool({"tool_name": tname, "tool_args": targs}, user, decision)
-                decision.actions = non_tool_actions
-                break
-
-            # Execute tools and collect results for next round
-            tool_results: list[str] = []
-            for tname, targs in tool_calls_this_round:
-                result_str = _exec_call_tool({"tool_name": tname, "tool_args": targs}, user, decision)
-                if tname in ALL_FEEDBACK_TOOLS:
-                    tool_results.append(f"[{tname}]\n{result_str}")
-                    logger.info("Tool %r result collected for round %d", tname, round_num + 1)
-
-            if not tool_results:
-                # All tools were fire-and-forget, no feedback needed
-                decision.actions = non_tool_actions
-                break
-
-            # Build next round's human message with tool results
-            current_human = (
-                f"Original request: {raw_input}\n\n"
-                f"Tool results from round {round_num}:\n"
-                + "\n\n".join(tool_results)
-                + "\n\nNow respond to the user using this data. "
-                "Return a valid LLMDecision JSON."
-            )
-            decision.actions = non_tool_actions  # carry forward in case loop ends
+        # Ask for structured decision
+        messages.append(HumanMessage(content=_DECISION_PROMPT))
+        try:
+            decision_response = await llm.ainvoke(messages)
+            decision = _parse_llm_decision(decision_response.content or "", model_used)
+        except Exception as exc:
+            logger.error("Decision extraction failed for user %s: %s", user.get("_id"), exc)
+            decision = None
 
         if decision is None:
-            return None
+            # Fallback: use the conversational response directly
+            decision = LLMDecision(
+                verdict=None,
+                response_text=final_text,
+                tone="NEUTRAL",
+                reasoning="Direct response (structured parsing failed)",
+                model_used=model_used,
+            )
+        elif not decision.response_text and final_text:
+            decision.response_text = final_text
 
-        # Privacy Scrubbing: Re-identify names in the final response back to the user
+        decision.model_used = model_used
+
+        # Privacy Scrubbing: Re-identify names
         if decision.response_text:
             decision.response_text = unscrub_response(decision.response_text, user["_id"])
 
-        # Execute remaining non-tool actions
+        # Execute non-tool actions (streak changes, etc.)
         pending_messages: list[str] = []
-        execute_actions(
+        await execute_actions(
             actions=decision.actions,
             user=user,
             log_id=None,

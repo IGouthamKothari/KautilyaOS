@@ -135,6 +135,12 @@ class ElevenLabsClient:
             ) from exc
 
         _set_cache(text, voice_id, audio_bytes)
+
+        global _low_credit_alert_pending
+        remaining = self._check_credit_balance()
+        if remaining is not None and remaining < 1000:
+            _low_credit_alert_pending = True
+
         return audio_bytes
 
     def _check_credit_balance(self) -> int | None:

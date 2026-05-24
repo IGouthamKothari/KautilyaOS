@@ -99,67 +99,89 @@ def _execute_task_by_id(task_id: ObjectId) -> None:
 def _fire_nudge(log_id: ObjectId) -> None:
     """Fire the engagement nudge for a specific log."""
     from chanakya.db.mongo import interaction_logs, checkpoints as cp_col
-    
+
     log = interaction_logs.find_one({"_id": log_id})
     if not log or log.get("user_response"):
-        return # Already handled or missing
+        return  # Already handled or missing
 
     uid = log["user_id"]
     user_doc = users.find_one({"_id": uid})
     if not user_doc or not user_doc.get("active"):
         return
 
-    # Check if this is a persistent nudge (e.g. Wake up)
+    # Hard limit: stop nudging after 2 hours from the original checkpoint
+    log_timestamp = log.get("timestamp")
+    if log_timestamp and (datetime.utcnow() - log_timestamp) > timedelta(hours=2):
+        logger.info("Nudge expired (>2h) for log %s — stopping.", log_id)
+        return
+
     cp = None
     if log.get("checkpoint_id"):
         cp = cp_col.find_one({"_id": log["checkpoint_id"]})
 
-    # Logic: 1st nudge is text, 2nd+ is CALL
     is_persistent = cp.get("persistent_nudge", False) if cp else False
     nudge_count = log.get("nudge_count", 0) + 1
-    
-    # Update log state
+
+    # Hard cap: max 5 nudges total regardless of persistence
+    if nudge_count > 5:
+        logger.info("Nudge cap reached (5) for log %s — stopping.", log_id)
+        return
+
     interaction_logs.update_one({"_id": log_id}, {"$inc": {"nudge_count": 1}})
 
-    if is_persistent or nudge_count >= 2:
-        # Escalate to CALL
-        text = f"Dharma Violation. You have ignored my guidance. I am calling to correct your path."
-        if is_persistent:
-            text = f"Persistent Nudge: {cp.get('display_name')}. Respond now to stop these calls."
-            
+    if nudge_count >= 2:
+        # 2nd+ nudge: escalate to CALL (once, not repeatedly)
+        text = "Dharma Violation. You have ignored my guidance. I am calling to correct your path."
+        if is_persistent and cp:
+            text = f"Persistent Nudge: {cp.get('display_name')}. Respond now."
+
         task_id = agent_tasks.insert_one({
             "user_id": uid, "task_type": "CALL_USER", "status": "PENDING",
             "payload": {"opening_text": text, "log_id": str(log_id)},
             "created_at": datetime.utcnow()
         }).inserted_id
         schedule_agent_task(task_id)
-        
-        # Schedule the NEXT persistent nudge if applicable
-        if is_persistent:
-            interval = cp.get("persistent_nudge_interval_minutes", 5)
+
+        # Only schedule one more follow-up (not infinite loop)
+        if nudge_count < 5:
+            interval = cp.get("persistent_nudge_interval_minutes", 30) if is_persistent else 30
             schedule_engagement_nudge(log_id, interval)
-            
     else:
-        # First warning via Telegram Text
+        # First nudge: Telegram text warning
         async def _send():
             from telegram import Bot
             from chanakya.config import TELEGRAM_BOT_TOKEN
             msg = "⚔️ <b>Dharma Monitor</b>\nDelay is the silent killer of empires. Respond now."
             await Bot(token=TELEGRAM_BOT_TOKEN).send_message(chat_id=user_doc["telegram_id"], text=msg, parse_mode="HTML")
-            # Schedule next nudge in 15 mins
-            schedule_engagement_nudge(log_id, 15)
-        
         _run_async(_send())
+
+        # Schedule escalation (call) in 15 mins if still no response
+        schedule_engagement_nudge(log_id, 15)
 
 
 def _run_async(coro):
-    """Run a coroutine from a sync background thread."""
+    """Run a coroutine from a sync background thread (thread-safe)."""
+    import asyncio
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        if loop.is_running(): asyncio.ensure_future(coro)
-        else: asyncio.run(coro)
-    except: asyncio.run(coro)
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # We're in the same thread as the loop (unlikely from APScheduler)
+        asyncio.ensure_future(coro)
+    else:
+        # From a background thread: try to find the main loop
+        try:
+            import threading
+            # Get the running loop from the main thread
+            main_loop = asyncio._get_running_loop()
+            if main_loop:
+                asyncio.run_coroutine_threadsafe(coro, main_loop)
+            else:
+                asyncio.run(coro)
+        except Exception:
+            asyncio.run(coro)
 
 
 def _execute_proxy_call_task(task: dict) -> None:

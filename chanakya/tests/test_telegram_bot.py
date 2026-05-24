@@ -401,6 +401,7 @@ async def test_handle_photo_no_caption(registered_user):
 
     fake_file = MagicMock()
     fake_file.file_path = "https://api.telegram.org/file/bot.../photo.jpg"
+    fake_photo.get_file = AsyncMock(return_value=fake_file)
 
     bot = MagicMock()
     bot.get_file = AsyncMock(return_value=fake_file)
@@ -505,6 +506,7 @@ async def test_handle_photo_agent_returns_none(registered_user):
 
     fake_file = MagicMock()
     fake_file.file_path = "https://api.telegram.org/file/bot.../photo2.jpg"
+    fake_photo.get_file = AsyncMock(return_value=fake_file)
 
     bot = MagicMock()
     bot.get_file = AsyncMock(return_value=fake_file)

@@ -24,7 +24,10 @@ from telegram.ext import (
 )
 
 from chanakya.config import OPENAI_API_KEY, TELEGRAM_BOT_TOKEN
-from chanakya.db.mongo import get_user_with_defaults, interaction_logs, users
+from chanakya.db.mongo import (
+    get_user_with_defaults, interaction_logs, users,
+    store_chat_message,
+)
 from chanakya.io_logger import log_input, log_output
 from chanakya.models.llm_decision import LLMDecision
 
@@ -79,6 +82,33 @@ async def _safe_reply(message, text: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Interaction type detection
+# ---------------------------------------------------------------------------
+
+
+def _detect_interaction_type(user: dict) -> str:
+    """Detect the appropriate interaction type based on context.
+
+    If the user is responding to a recent scheduled checkpoint (within 30 min),
+    treat as CHECKPOINT so full tier2/tier3 context is loaded.
+    Otherwise, treat as MENTOR_TALK for natural conversation (tier1 only — faster).
+    """
+    from datetime import timedelta
+    last_scheduled = interaction_logs.find_one(
+        {
+            "user_id": user["_id"],
+            "trigger_type": "SCHEDULED",
+            "user_response": None,
+            "timestamp": {"$gte": datetime.utcnow() - timedelta(minutes=30)},
+        },
+        sort=[("timestamp", -1)],
+    )
+    if last_scheduled:
+        return "CHECKPOINT"
+    return "MENTOR_TALK"
+
+
+# ---------------------------------------------------------------------------
 # Agent invocation
 # ---------------------------------------------------------------------------
 
@@ -88,6 +118,12 @@ async def invoke_agent(
     interaction_type: str,
     media_url: str | None = None,
 ) -> LLMDecision | None:
+    from chanakya.config import DARBAR_ENABLED
+
+    if DARBAR_ENABLED:
+        from chanakya.darbar.orchestrator import process
+        return await process(user, raw_input, interaction_type, media_url=media_url)
+
     from chanakya.agent.chanakya_agent import ChanakyaAgent
     agent = ChanakyaAgent(user)
     return await agent.invoke(raw_input, interaction_type, media_url=media_url)
@@ -128,12 +164,15 @@ async def generic_process_message(
     except Exception:
         logger.exception("Failed to insert interaction_log for user %s", telegram_id)
 
+    # Detect interaction type from context
+    interaction_type = _detect_interaction_type(user)
+
     # Invoke agent
     try:
         llm_decision = await invoke_agent(
             user=user,
             raw_input=user_input,
-            interaction_type="CHECKPOINT",
+            interaction_type=interaction_type,
             media_url=media_url,
         )
     except Exception:
@@ -174,14 +213,12 @@ async def generic_process_message(
     logger.info("📤 [%s] (%s) verdict=%s: %s", telegram_id, channel, llm_decision.verdict, llm_decision.response_text[:100])
     log_output(channel, telegram_id, llm_decision.response_text, verdict=llm_decision.verdict)
 
-    # Update rolling conversation context (fire-and-forget)
+    # Store messages in chat history for future context
     try:
-        from chanakya.agent.context_assembler import update_conversation_context
-        import asyncio
-        asyncio.ensure_future(update_conversation_context(user, role="user", content=user_input, channel="text"))
-        asyncio.ensure_future(update_conversation_context(user, role="assistant", content=llm_decision.response_text, channel="text"))
+        store_chat_message(user["_id"], "user", user_input, channel.lower())
+        store_chat_message(user["_id"], "assistant", llm_decision.response_text, channel.lower())
     except Exception:
-        pass
+        logger.debug("Failed to store chat messages for user %s", telegram_id)
 
     return llm_decision.response_text
 
@@ -234,13 +271,78 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info("✅ Auto-registered: %s (%s)", tg_user.full_name, telegram_id)
         user = get_user_with_defaults(telegram_id)
     else:
-        if tg_user.username and user.get("telegram_username") != tg_user.username:
-            users.update_one({"_id": user["_id"]}, {"$set": {"telegram_username": tg_user.username}})
+        if tg_user.username and user.get("telegram_username") != str(tg_user.username):
+            users.update_one({"_id": user["_id"]}, {"$set": {"telegram_username": str(tg_user.username)}})
 
     await update.effective_message.reply_text(
-        f"⚔️ Chanakya is watching, {user['name']}.\n\nJust talk naturally. No commands needed.",
+        f"⚔️ Chanakya is watching, {user['name']}.\n\n"
+        "Commands:\n"
+        "/status — Streak, failures, and mode\n"
+        "/war — Activate War Mode\n"
+        "/peace — Deactivate War Mode\n"
+        "/shield — Toggle AWAY mode\n"
+        "/settodotime HH:MM — Set morning todo time\n"
+        "/reloadtemplates — Reload prompt templates\n\n"
+        "Or just talk naturally.",
         parse_mode="HTML",
     )
+
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    telegram_id = str(update.effective_user.id)
+    user = get_user_with_defaults(telegram_id)
+    if user is None:
+        await update.effective_message.reply_text(_UNREGISTERED_MSG)
+        return
+    streak = user.get("streak_count", 0)
+    longest = user.get("longest_streak", 0)
+    failures = user.get("failure_count_this_week", 0)
+    mode = user.get("current_mode", "NORMAL")
+    await update.effective_message.reply_text(
+        f"<b>Status</b>\n\nStreak: {streak} days (Best: {longest})\n"
+        f"Failures this week: {failures}\nMode: {mode}",
+        parse_mode="HTML",
+    )
+
+
+async def cmd_peace(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    telegram_id = str(update.effective_user.id)
+    user = get_user_with_defaults(telegram_id)
+    if user is None:
+        await update.effective_message.reply_text(_UNREGISTERED_MSG)
+        return
+    users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"current_mode": "NORMAL", "war_mode_expires": None}},
+    )
+    await update.effective_message.reply_text("War Mode deactivated. You are now in NORMAL mode.")
+
+
+async def cmd_settodotime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    telegram_id = str(update.effective_user.id)
+    user = get_user_with_defaults(telegram_id)
+    if user is None:
+        await update.effective_message.reply_text(_UNREGISTERED_MSG)
+        return
+    text = update.message.text or ""
+    parts = text.split()
+    if len(parts) < 2 or not re.match(r"^\d{2}:\d{2}$", parts[1]):
+        await update.effective_message.reply_text(
+            f"Invalid format. Use /settodotime HH:MM (e.g. /settodotime 08:30)"
+        )
+        return
+    time_str = parts[1]
+    try:
+        hour, minute = map(int, time_str.split(":"))
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError
+    except ValueError:
+        await update.effective_message.reply_text(
+            f"Invalid format. Use /settodotime HH:MM (e.g. /settodotime 08:30)"
+        )
+        return
+    users.update_one({"_id": user["_id"]}, {"$set": {"morning_todo_time": time_str}})
+    await update.effective_message.reply_text(f"✅ Morning todo time set to {time_str}.")
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -258,7 +360,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     media_url = photo_file.file_path # This is a temporary public URL from Telegram
     
     logger.info("📸 Photo received from %s. Caption: %s", telegram_id, caption)
-    await _process_message(update, caption or "[Sent a photo]", telegram_id, media_url=media_url)
+    await _process_message(update, f"[PHOTO] {caption or ''}", telegram_id, media_url=media_url)
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -299,6 +401,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 def build_application() -> Application:
     app: Application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("peace", cmd_peace))
+    app.add_handler(CommandHandler("settodotime", cmd_settodotime))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))

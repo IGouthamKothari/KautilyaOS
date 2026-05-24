@@ -49,9 +49,10 @@ class TestActionItem:
         item = ActionItem(type="update_longest_streak", params={"value": 10})
         assert item.params == {"value": 10}
 
-    def test_invalid_action_type_raises_validation_error(self):
-        with pytest.raises(ValidationError):
-            ActionItem(type="fly_to_moon")
+    def test_invalid_action_type_is_accepted(self):
+        # type: str is intentionally flexible — validated/normalised in execute_actions
+        item = ActionItem(type="fly_to_moon")
+        assert item.type == "fly_to_moon"
 
     def test_all_valid_action_types_accepted(self):
         valid_types = [
@@ -113,12 +114,13 @@ class TestLLMDecision:
         decision = LLMDecision()
         assert decision.streak_reset is False
 
-    def test_unknown_action_type_raises_validation_error(self):
+    def test_unknown_action_type_is_accepted(self):
+        # type: str is intentionally flexible — validated/normalised in execute_actions
         data = {
             "actions": [{"type": "do_something_unknown", "params": {}}],
         }
-        with pytest.raises(ValidationError):
-            LLMDecision.model_validate(data)
+        decision = LLMDecision.model_validate(data)
+        assert decision.actions[0].type == "do_something_unknown"
 
     def test_multiple_actions_parsed_in_order(self):
         data = {

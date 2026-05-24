@@ -74,12 +74,17 @@ ELEVENLABS_VOICE_ID: str = os.environ["ELEVENLABS_VOICE_ID"]
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
-LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "gpt-5.4-nano")
+LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "gpt-5-mini")
+UTILITY_MODEL_NAME: str = os.getenv("UTILITY_MODEL_NAME", "gpt-5.4-nano")
 
 # Council Models
 KAUTILYA_MODEL: str = os.getenv("KAUTILYA_MODEL", "gpt-5.4-mini-2026-03-17")
 CHARAKA_MODEL: str = os.getenv("CHARAKA_MODEL", "gpt-5-nano-2025-08-07")
 VISHVAKARMA_MODEL: str = os.getenv("VISHVAKARMA_MODEL", "gpt-5-mini-2025-08-07")
+
+# Darbar Multi-Agent System
+DARBAR_ENABLED: bool = os.getenv("DARBAR_ENABLED", "false").lower() in ("true", "1", "yes")
+ROUTER_MODEL: str = os.getenv("ROUTER_MODEL", UTILITY_MODEL_NAME)
 
 # WEBHOOK_URL: public HTTPS URL Telegram will POST updates to.
 # Example: https://your-app.onrender.com  (no trailing slash, no /telegram path)

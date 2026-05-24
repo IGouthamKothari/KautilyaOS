@@ -31,6 +31,7 @@ from chanakya.db.mongo import checkpoints, users
 from chanakya.tools.accountability_tools import ALL_ACCOUNTABILITY_TOOLS
 from chanakya.tools.ritual_tools import ALL_RITUAL_TOOLS
 from chanakya.tools.council_tools import ALL_COUNCIL_TOOLS
+from chanakya.tools.goal_tools import ALL_GOAL_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -164,12 +165,14 @@ def schedule_one_time_activity(user_id: str, activity: str, time: str, date: str
             "fired": False,
             "created_at": datetime.utcnow()
         }
-        daily_events.insert_one(event_doc)
-        
-        # Sync precision scheduler
+        result_insert = daily_events.insert_one(event_doc)
+        event_doc["_id"] = result_insert.inserted_id
+
         try:
-            from chanakya.scheduler.checkpoint_runner import refresh_all_schedules
-            refresh_all_schedules()
+            from chanakya.scheduler.checkpoint_runner import sync_event
+            user_doc = users.find_one({"_id": uid})
+            if user_doc:
+                sync_event(user_doc, event_doc)
         except Exception:
             pass
             
@@ -208,11 +211,13 @@ def modify_wakeup_time(user_id: str, new_time: str, reason: str = "") -> str:
 
     # 15.3 — Update + audit + return
     checkpoints.update_one({"_id": cp["_id"]}, {"$set": {"time": new_time}})
-    
-    # NEW: Sync precision scheduler
+
     try:
-        from chanakya.scheduler.checkpoint_runner import refresh_all_schedules
-        refresh_all_schedules()
+        from chanakya.scheduler.checkpoint_runner import sync_checkpoint
+        user_doc = users.find_one({"_id": uid})
+        cp["time"] = new_time
+        if user_doc:
+            sync_checkpoint(user_doc, cp)
     except Exception:
         pass
 
@@ -299,11 +304,11 @@ def add_daily_checkpoint(
         "created_at": datetime.utcnow(),
     }
     result_insert = checkpoints.insert_one(new_cp)
+    new_cp["_id"] = result_insert.inserted_id
 
-    # NEW: Sync precision scheduler
     try:
-        from chanakya.scheduler.checkpoint_runner import refresh_all_schedules
-        refresh_all_schedules()
+        from chanakya.scheduler.checkpoint_runner import sync_checkpoint
+        sync_checkpoint(user_doc, new_cp)
     except Exception:
         pass
 
@@ -401,6 +406,16 @@ def update_morning_todo_time(user_id: str, new_time: str) -> str:
         {"user_id": uid, "action_type": "TELEGRAM_TEXT", "priority": "LOW"},
         {"$set": {"time": new_time}},
     )
+
+    try:
+        from chanakya.scheduler.checkpoint_runner import sync_checkpoint
+        updated_cps = list(checkpoints.find(
+            {"user_id": uid, "action_type": "TELEGRAM_TEXT", "priority": "LOW", "active": True}
+        ))
+        for cp in updated_cps:
+            sync_checkpoint(user_doc, cp)
+    except Exception:
+        pass
 
     # 19.3 — Audit + return
     result = (
@@ -535,10 +550,15 @@ def update_schedule_activity(
     old_value = cp.get(field)
     checkpoints.update_one({"_id": cp_oid}, {"$set": {field: coerced}})
 
-    # NEW: Sync precision scheduler
     try:
-        from chanakya.scheduler.checkpoint_runner import refresh_all_schedules
-        refresh_all_schedules()
+        from chanakya.scheduler.checkpoint_runner import sync_checkpoint, unsync_checkpoint
+        user_doc = users.find_one({"_id": uid})
+        if user_doc:
+            cp[field] = coerced
+            if coerced is False and field == "active":
+                unsync_checkpoint(cp_oid)
+            else:
+                sync_checkpoint(user_doc, cp)
     except Exception:
         pass
 
@@ -1281,6 +1301,14 @@ def add_day_event(
         "updated_at": now_utc,
     }
     result_insert = de_col.insert_one(doc)
+    doc["_id"] = result_insert.inserted_id
+
+    try:
+        from chanakya.scheduler.checkpoint_runner import sync_event
+        sync_event(user_doc, doc)
+    except Exception:
+        pass
+
     result = f"Event added on {target_date_str} at {time_str}: {clean_display}" + (f" — {clean_description}" if clean_description else "")
     _write_audit(uid, "add_day_event", {"date": target_date_str, "time": time_str, "activity": activity, "display_name": clean_display}, result)
     return result + f" | id={result_insert.inserted_id}"
@@ -1335,6 +1363,17 @@ def update_day_event(
             coerced = value.lower() == "true"
         checkpoints.update_one({"_id": cp_id}, {"$set": {field: coerced}})
         result = f"Base checkpoint updated for all weekdays: {field}={value!r}."
+        try:
+            from chanakya.scheduler.checkpoint_runner import sync_checkpoint, unsync_checkpoint
+            updated_cp = checkpoints.find_one({"_id": cp_id})
+            user_doc = users.find_one({"_id": uid})
+            if updated_cp and user_doc:
+                if field == "active" and coerced is False:
+                    unsync_checkpoint(cp_id)
+                else:
+                    sync_checkpoint(user_doc, updated_cp)
+        except Exception:
+            pass
     else:
         evt = de_col.find_one({"_id": evt_oid, "user_id": uid})
         if not evt:
@@ -1344,6 +1383,18 @@ def update_day_event(
             coerced = value.lower() == "true"
         de_col.update_one({"_id": evt_oid}, {"$set": {field: coerced, "updated_at": datetime.utcnow()}})
         result = f"Event {event_id} updated: {field}={value!r} (this date only)."
+        try:
+            from chanakya.scheduler.checkpoint_runner import sync_event, unsync_checkpoint
+            from chanakya.db.mongo import daily_events as _de
+            if field == "active" and coerced is False:
+                unsync_checkpoint(evt_oid)
+            else:
+                updated_evt = _de.find_one({"_id": evt_oid})
+                user_doc = users.find_one({"_id": uid})
+                if updated_evt and user_doc:
+                    sync_event(user_doc, updated_evt)
+        except Exception:
+            pass
 
     _write_audit(uid, "update_day_event", {"event_id": event_id, "field": field, "value": value, "scope": scope}, result)
     return result
@@ -1369,6 +1420,11 @@ def delete_day_event(user_id: str, event_id: str) -> str:
     result_del = de_col.delete_one({"_id": evt_oid, "user_id": uid})
     if result_del.deleted_count:
         result = f"Event {event_id} deleted."
+        try:
+            from chanakya.scheduler.checkpoint_runner import unsync_checkpoint
+            unsync_checkpoint(evt_oid)
+        except Exception:
+            pass
     else:
         result = f"No event found with id={event_id}."
     _write_audit(uid, "delete_day_event", {"event_id": event_id}, result)
@@ -1661,6 +1717,14 @@ def reschedule_activity(
             old_time = evt.get("time")
             de_col.update_one({"_id": evt["_id"]}, {"$set": {"time": new_time.strip(), "updated_at": datetime.utcnow()}})
             result = f"Moved '{activity}' from {old_time} to {new_time} on {target_date_str}."
+            try:
+                from chanakya.scheduler.checkpoint_runner import unsync_checkpoint, sync_event
+                unsync_checkpoint(evt["_id"])
+                updated_evt = de_col.find_one({"_id": evt["_id"]})
+                if updated_evt:
+                    sync_event(user_doc, updated_evt)
+            except Exception:
+                pass
             _write_audit(uid, "reschedule_activity", {"activity": activity, "new_time": new_time, "date": target_date_str}, result)
             return result
 
@@ -1696,7 +1760,15 @@ def reschedule_activity(
                 "updated_at": now_utc,
             }
             result_insert = de_col.insert_one(doc)
+            doc["_id"] = result_insert.inserted_id
             result = f"Moved '{activity}' from {old_time} to {new_time} on {target_date_str}."
+            try:
+                from chanakya.scheduler.checkpoint_runner import unsync_checkpoint, sync_event
+                # Remove any stale job for the overridden base checkpoint (for today)
+                unsync_checkpoint(cp["_id"])
+                sync_event(user_doc, doc)
+            except Exception:
+                pass
             _write_audit(uid, "reschedule_activity", {"activity": activity, "new_time": new_time, "date": target_date_str}, result)
             return result + f" | event_id={result_insert.inserted_id}"
 
@@ -1771,4 +1843,4 @@ ALL_TOOLS = [
     schedule_message,
     cancel_scheduled_message,
     reschedule_activity,
-] + ALL_ACCOUNTABILITY_TOOLS + ALL_RITUAL_TOOLS + ALL_COUNCIL_TOOLS
+] + ALL_ACCOUNTABILITY_TOOLS + ALL_RITUAL_TOOLS + ALL_COUNCIL_TOOLS + ALL_GOAL_TOOLS
