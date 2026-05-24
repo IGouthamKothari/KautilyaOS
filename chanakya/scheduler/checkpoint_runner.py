@@ -43,6 +43,81 @@ def stop_runner() -> None:
     logger.info("Checkpoint runner stopped.")
 
 
+def sync_checkpoint(user: dict, cp: dict) -> None:
+    """Surgically add/update a single recurring checkpoint in the scheduler."""
+    try:
+        _schedule_checkpoint(user, cp)
+    except Exception as exc:
+        logger.warning("sync_checkpoint failed for %s: %s", cp.get("_id"), exc)
+
+
+def unsync_checkpoint(cp_id) -> None:
+    """Remove a single checkpoint/event job from the scheduler immediately."""
+    job_id = f"cp_{cp_id}"
+    try:
+        if scheduler.get_job(job_id):
+            scheduler.remove_job(job_id)
+            logger.debug("Unsynced scheduler job %s", job_id)
+    except Exception as exc:
+        logger.warning("unsync_checkpoint failed for %s: %s", cp_id, exc)
+
+
+def sync_event(user: dict, event: dict) -> None:
+    """Schedule a one-time daily event using DateTrigger (today only, future time only)."""
+    from apscheduler.triggers.date import DateTrigger
+    import pytz
+
+    time_str = event.get("time", "")
+    event_date = event.get("date", "")
+    tz = pytz.timezone(user.get("timezone", "Asia/Kolkata"))
+    today_str = datetime.now(tz).strftime("%Y-%m-%d")
+
+    if event_date != today_str or event.get("fired"):
+        return  # Future date — periodic refresh handles it on the right day
+
+    try:
+        hour, minute = map(int, time_str.split(":"))
+    except (ValueError, AttributeError):
+        return
+
+    now_local = datetime.now(tz)
+    fire_time = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if fire_time <= now_local:
+        return  # Already passed
+
+    ov_cp = {
+        "_id": event["_id"],
+        "time": time_str,
+        "action_type": event.get("action_type", "TELEGRAM_TEXT"),
+        "priority": event.get("priority", "MEDIUM"),
+        "prompt_template": event.get("note") or event.get("activity", ""),
+        "display_name": event.get("display_name") or event.get("activity", ""),
+        "is_daily_event": True,
+        "expects_response": event.get("expects_response", False),
+    }
+
+    def fire_wrapper():
+        from chanakya.db.mongo import users as users_col
+        fresh_user = users_col.find_one({"_id": user["_id"]})
+        if not fresh_user or not fresh_user.get("active"):
+            return
+        if _should_skip_checkpoint(fresh_user, ov_cp):
+            return
+        _fire_checkpoint(fresh_user, ov_cp)
+
+    job_id = f"cp_{event['_id']}"
+    try:
+        scheduler.add_job(
+            fire_wrapper,
+            DateTrigger(run_date=fire_time, timezone=tz),
+            id=job_id,
+            replace_existing=True,
+        )
+        logger.info("Synced one-time event %s at %s today", event["_id"], fire_time.strftime("%H:%M"))
+    except Exception as exc:
+        logger.warning("sync_event failed for %s: %s", event.get("_id"), exc)
+
+
 def refresh_all_schedules() -> None:
     """Clear all scheduled checkpoint jobs and rebuild from MongoDB."""
     from chanakya.db.mongo import checkpoints, users as users_col
@@ -152,6 +227,7 @@ def _expire_war_mode_if_needed(user: dict) -> dict:
             users.update_one({"_id": user["_id"]}, {"$set": {"current_mode": "NORMAL", "war_mode_expires": None}})
             user = dict(user)
             user["current_mode"] = "NORMAL"
+            user["war_mode_expires"] = None
             return user
     return user
 
@@ -201,11 +277,12 @@ def _fire_checkpoint(user: dict, cp: dict) -> None:
     else:
         logger.warning("Unknown action_type %r for checkpoint %s", action_type, cp["_id"])
 
-    # NEW: Schedule the first engagement nudge for this interaction
-    from chanakya.scheduler.task_runner import schedule_engagement_nudge
-    # If it's a persistent nudge (like Wake-up), use its specific interval
-    interval = cp.get("persistent_nudge_interval_minutes", 15) if cp.get("persistent_nudge") else 15
-    schedule_engagement_nudge(log_id, interval)
+    # Schedule engagement nudge only for checkpoints that expect a response
+    expects_response = cp.get("expects_response", True) and not cp.get("is_daily_event", False)
+    if expects_response:
+        from chanakya.scheduler.task_runner import schedule_engagement_nudge
+        interval = cp.get("persistent_nudge_interval_minutes", 15) if cp.get("persistent_nudge") else 15
+        schedule_engagement_nudge(log_id, interval)
 
     if cp.get("is_daily_event"):
         from chanakya.db.mongo import daily_events as de_col
@@ -216,11 +293,23 @@ def _fire_checkpoint(user: dict, cp: dict) -> None:
         interaction_logs.update_one({"_id": log_id}, {"$set": {"twilio_call_sid": call_sid}})
 
 def _run_async(coro):
+    """Run a coroutine from a sync background thread (thread-safe)."""
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running(): asyncio.ensure_future(coro)
-        else: asyncio.run(coro)
-    except: asyncio.run(coro)
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        asyncio.ensure_future(coro)
+    else:
+        try:
+            main_loop = asyncio._get_running_loop()
+            if main_loop:
+                asyncio.run_coroutine_threadsafe(coro, main_loop)
+            else:
+                asyncio.run(coro)
+        except Exception:
+            asyncio.run(coro)
 
 def _execute_telegram_text(user: dict, text: str) -> None:
     async def _send():

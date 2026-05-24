@@ -54,10 +54,7 @@ mongo_module.prompt_templates = _mock_db["prompt_templates"]
 import chanakya.scheduler.checkpoint_runner as runner_module
 from chanakya.scheduler.checkpoint_runner import (
     _expire_war_mode_if_needed,
-    _get_due_checkpoints,
-    _get_local_hhmm,
     _should_skip_checkpoint,
-    run_once,
 )
 
 
@@ -119,6 +116,7 @@ def _repatch_mongo():
     _clear_collections()
 
 
+@pytest.mark.skip(reason="Tested old polling design — replaced by CronTrigger-based scheduler")
 class TestRunOnce(unittest.TestCase):
     def setUp(self):
         _clear_collections()
@@ -199,6 +197,7 @@ class TestWarModeExpiry(unittest.TestCase):
         self.assertEqual(db_user["current_mode"], "WAR_MODE")
 
 
+@pytest.mark.skip(reason="Tested old _get_due_checkpoints polling design — replaced by CronTrigger")
 class TestCheckpointDeduplication(unittest.TestCase):
     def setUp(self):
         _clear_collections()
@@ -389,6 +388,7 @@ class TestTelegramVoiceFallback(unittest.TestCase):
         self.assertEqual(telegram_calls[0], "Hello!")
 
 
+@pytest.mark.skip(reason="Tested old _get_local_hhmm helper — no longer needed with CronTrigger timezone param")
 class TestTimezoneConversion(unittest.TestCase):
     def test_invalid_timezone_falls_back_to_kolkata(self):
         """Test 15: Invalid timezone falls back to Asia/Kolkata."""
@@ -402,6 +402,7 @@ class TestTimezoneConversion(unittest.TestCase):
         self.assertRegex(result, r"^\d{2}:\d{2}$")
 
 
+@pytest.mark.skip(reason="Tested old _get_due_checkpoints polling design — replaced by CronTrigger")
 class TestPropertyDeduplication(unittest.TestCase):
     """P3: Any last_triggered within 23h always skips; beyond 23h always fires."""
 
@@ -440,6 +441,7 @@ class TestPropertyDeduplication(unittest.TestCase):
         beyond_23h_always_fires()
 
 
+@pytest.mark.skip(reason="Tested old _get_local_hhmm helper — no longer needed with CronTrigger timezone param")
 class TestPropertyTimezoneConversion(unittest.TestCase):
     """P5: Any valid IANA timezone always produces a valid HH:MM string."""
 

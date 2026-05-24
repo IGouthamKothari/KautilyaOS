@@ -73,6 +73,7 @@ mongo_module.ai_tool_calls = _mock_db["ai_tool_calls"]
 mongo_module.checkpoints = _mock_db["checkpoints"]
 mongo_module.prompt_templates = _mock_db["prompt_templates"]
 mongo_module.user_state_snapshots = _mock_db["user_state_snapshots"]
+mongo_module.chat_messages = _mock_db["chat_messages"]
 
 
 def _repatch():
@@ -86,6 +87,7 @@ def _repatch():
     live_mongo.checkpoints = _mock_db["checkpoints"]
     live_mongo.prompt_templates = _mock_db["prompt_templates"]
     live_mongo.user_state_snapshots = _mock_db["user_state_snapshots"]
+    live_mongo.chat_messages = _mock_db["chat_messages"]
     mongo_module.db = _mock_db
     mongo_module.users = _mock_db["users"]
     mongo_module.interaction_logs = _mock_db["interaction_logs"]
@@ -93,6 +95,7 @@ def _repatch():
     mongo_module.checkpoints = _mock_db["checkpoints"]
     mongo_module.prompt_templates = _mock_db["prompt_templates"]
     mongo_module.user_state_snapshots = _mock_db["user_state_snapshots"]
+    mongo_module.chat_messages = _mock_db["chat_messages"]
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +107,7 @@ def _repatch_mongo_collections():
     _repatch()
     # Clear all collections
     for col in ["users", "interaction_logs", "ai_tool_calls", "checkpoints",
-                "prompt_templates", "user_state_snapshots"]:
+                "prompt_templates", "user_state_snapshots", "chat_messages"]:
         _mock_db[col].delete_many({})
 
 
@@ -150,22 +153,28 @@ def _patch_llm(side_effects):
     """
     Return a factory that creates mock LLM instances with given side_effects.
     Each element is either a string (success response content) or an Exception.
-    The factory accepts no arguments to match _make_llm() call signature.
+    Supports the new native tool calling architecture:
+    - ainvoke (async) instead of invoke
+    - bind_tools returns the same mock (tools are bound natively)
     """
-    call_count = [0]
+    call_idx = [0]
 
-    def factory(*args, **kwargs):
-        idx = call_count[0]
-        call_count[0] += 1
-        m = MagicMock()
+    async def _async_invoke(messages):
+        idx = call_idx[0]
+        call_idx[0] += 1
         if idx < len(side_effects):
             effect = side_effects[idx]
             if isinstance(effect, Exception):
-                m.invoke.side_effect = effect
-            else:
-                m.invoke.return_value = _make_llm_response(effect)
-        else:
-            m.invoke.side_effect = Exception("unexpected call")
+                raise effect
+            resp = _make_llm_response(effect)
+            resp.tool_calls = []
+            return resp
+        raise Exception("unexpected call")
+
+    def factory(*args, **kwargs):
+        m = MagicMock()
+        m.ainvoke = _async_invoke
+        m.bind_tools = MagicMock(return_value=m)
         return m
 
     return factory
@@ -201,6 +210,10 @@ _MOCK_CONTEXT = {
 }
 
 
+async def _async_mock_build(*args, **kwargs):
+    return _MOCK_CONTEXT
+
+
 # ---------------------------------------------------------------------------
 # Test 1: invoke returns LLMDecision when LLM returns valid JSON
 # ---------------------------------------------------------------------------
@@ -210,10 +223,11 @@ class TestInvokeSuccess:
         user = _make_user()
         _mock_db["users"].insert_one(dict(user))
 
-        factory = _patch_llm([_valid_decision_json()])
+        # Two LLM calls: 1) tool loop (conversational response), 2) decision extraction
+        factory = _patch_llm(["Good work, warrior.", _valid_decision_json()])
 
         with patch.object(agent_module, "_make_llm", side_effect=factory):
-            with patch.object(agent_module.ContextAssembler, "build", return_value=_MOCK_CONTEXT):
+            with patch.object(agent_module.ContextAssembler, "build", side_effect=_async_mock_build):
                 agent = agent_module.ChanakyaAgent(user)
                 result = _run_async(agent.invoke("I completed my workout", "CHECKPOINT"))
 
@@ -235,7 +249,7 @@ class TestInvokeAllModelsFail:
         factory = _patch_llm([Exception("model error")])
 
         with patch.object(agent_module, "_make_llm", side_effect=factory):
-            with patch.object(agent_module.ContextAssembler, "build", return_value=_MOCK_CONTEXT):
+            with patch.object(agent_module.ContextAssembler, "build", side_effect=_async_mock_build):
                 agent = agent_module.ChanakyaAgent(user)
                 result = _run_async(agent.invoke("hello", "CHECKPOINT"))
 
@@ -251,15 +265,17 @@ class TestInvokeFallbackToModel2:
         user = _make_user()
         _mock_db["users"].insert_one(dict(user))
 
-        factory = _patch_llm([_valid_decision_json("gpt-4o-mini")])
+        # Two calls: conversation + decision extraction
+        factory = _patch_llm(["Hello warrior.", _valid_decision_json("gpt-4o-mini")])
 
         with patch.object(agent_module, "_make_llm", side_effect=factory):
-            with patch.object(agent_module.ContextAssembler, "build", return_value=_MOCK_CONTEXT):
+            with patch.object(agent_module.ContextAssembler, "build", side_effect=_async_mock_build):
                 agent = agent_module.ChanakyaAgent(user)
                 result = _run_async(agent.invoke("hello", "CHECKPOINT"))
 
         assert result is not None
-        assert result.model_used == "gpt-4o-mini"
+        # model_used is always set to the config MODEL regardless of what the JSON says
+        assert result.model_used == agent_module.MODEL
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +290,7 @@ class TestInvokeFallbackToModel3:
         factory = _patch_llm([Exception("model error")])
 
         with patch.object(agent_module, "_make_llm", side_effect=factory):
-            with patch.object(agent_module.ContextAssembler, "build", return_value=_MOCK_CONTEXT):
+            with patch.object(agent_module.ContextAssembler, "build", side_effect=_async_mock_build):
                 agent = agent_module.ChanakyaAgent(user)
                 result = _run_async(agent.invoke("hello", "CHECKPOINT"))
 
@@ -286,18 +302,25 @@ class TestInvokeFallbackToModel3:
 # ---------------------------------------------------------------------------
 
 class TestMalformedResponse:
-    def test_malformed_response_returns_none(self):
+    def test_malformed_decision_uses_fallback(self):
         user = _make_user()
         _mock_db["users"].insert_one(dict(user))
 
-        factory = _patch_llm(["This is not JSON at all, just plain text."])
+        # Two calls: conversation (plain text) + decision (also plain text = parse fails)
+        factory = _patch_llm([
+            "This is not JSON at all, just plain text.",
+            "Still not JSON — just a response.",
+        ])
 
         with patch.object(agent_module, "_make_llm", side_effect=factory):
-            with patch.object(agent_module.ContextAssembler, "build", return_value=_MOCK_CONTEXT):
+            with patch.object(agent_module.ContextAssembler, "build", side_effect=_async_mock_build):
                 agent = agent_module.ChanakyaAgent(user)
                 result = _run_async(agent.invoke("hello", "CHECKPOINT"))
 
-        assert result is None
+        # Fallback: uses the conversational text directly
+        assert result is not None
+        assert "not JSON" in result.response_text
+        assert result.verdict is None
 
     def test_parse_llm_decision_returns_none_on_garbage(self):
         result = agent_module._parse_llm_decision("garbage text no json here", "model-x")
@@ -350,7 +373,7 @@ class TestExecuteActionsIncrementStreak:
         from chanakya.models.llm_decision import ActionItem
         actions = [ActionItem(type="increment_streak", params={})]
 
-        agent_module.execute_actions(actions, user, log_id=None)
+        _run_async(agent_module.execute_actions(actions, user, log_id=None))
 
         updated = _mock_db["users"].find_one({"_id": user["_id"]})
         assert updated["streak_count"] == 6
@@ -362,7 +385,7 @@ class TestExecuteActionsIncrementStreak:
         from chanakya.models.llm_decision import ActionItem
         actions = [ActionItem(type="increment_streak", params={})]
 
-        agent_module.execute_actions(actions, user, log_id=None)
+        _run_async(agent_module.execute_actions(actions, user, log_id=None))
 
         updated = _mock_db["users"].find_one({"_id": user["_id"]})
         assert updated["streak_count"] == 11
@@ -381,7 +404,7 @@ class TestExecuteActionsResetStreak:
         from chanakya.models.llm_decision import ActionItem
         actions = [ActionItem(type="reset_streak", params={})]
 
-        agent_module.execute_actions(actions, user, log_id=None)
+        _run_async(agent_module.execute_actions(actions, user, log_id=None))
 
         updated = _mock_db["users"].find_one({"_id": user["_id"]})
         assert updated["streak_count"] == 0
@@ -399,7 +422,7 @@ class TestExecuteActionsUpdateActivitySlot:
         from chanakya.models.llm_decision import ActionItem
         actions = [ActionItem(type="update_activity_slot", params={"slot": "GYM"})]
 
-        agent_module.execute_actions(actions, user, log_id=None)
+        _run_async(agent_module.execute_actions(actions, user, log_id=None))
 
         updated = _mock_db["users"].find_one({"_id": user["_id"]})
         assert updated["current_activity"] == "GYM"
@@ -434,7 +457,7 @@ class TestExecuteActionsContinuesOnFailure:
 
         with patch.object(_mock_db["users"], "update_one", side_effect=patched_update):
             # Should not raise - execute_actions catches individual failures
-            agent_module.execute_actions(actions, user, log_id=None)
+            _run_async(agent_module.execute_actions(actions, user, log_id=None))
 
         # Second action (update_activity_slot) should have executed
         updated = _mock_db["users"].find_one({"_id": user["_id"]})
@@ -458,7 +481,7 @@ class TestExecuteActionsOrder:
             ActionItem(type="increment_streak", params={}),
         ]
 
-        agent_module.execute_actions(actions, user, log_id=None)
+        _run_async(agent_module.execute_actions(actions, user, log_id=None))
 
         updated = _mock_db["users"].find_one({"_id": user["_id"]})
         # reset to 0, then increment to 1
@@ -477,7 +500,7 @@ class TestAuditLogForModelAttempts:
         factory = _patch_llm([_valid_decision_json()])
 
         with patch.object(agent_module, "_make_llm", side_effect=factory):
-            with patch.object(agent_module.ContextAssembler, "build", return_value=_MOCK_CONTEXT):
+            with patch.object(agent_module.ContextAssembler, "build", side_effect=_async_mock_build):
                 agent = agent_module.ChanakyaAgent(user)
                 _run_async(agent.invoke("hello", "CHECKPOINT"))
 
@@ -495,7 +518,7 @@ class TestAuditLogForModelAttempts:
         factory = _patch_llm([Exception("API error")])
 
         with patch.object(agent_module, "_make_llm", side_effect=factory):
-            with patch.object(agent_module.ContextAssembler, "build", return_value=_MOCK_CONTEXT):
+            with patch.object(agent_module.ContextAssembler, "build", side_effect=_async_mock_build):
                 agent = agent_module.ChanakyaAgent(user)
                 _run_async(agent.invoke("hello", "CHECKPOINT"))
 
@@ -567,7 +590,7 @@ def test_p8_execute_actions_in_array_order(action_types):
     def tracking_exec(actions_list, user_arg, log_id, decision=None, pending_messages=None):
         for a in actions_list:
             execution_log.append(a.type)
-        original_exec(actions_list, user_arg, log_id, decision, pending_messages)
+        _run_async(original_exec(actions_list, user_arg, log_id, decision, pending_messages))
 
     tracking_exec(actions, user, log_id=None)
 

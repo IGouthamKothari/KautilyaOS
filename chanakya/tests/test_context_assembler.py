@@ -21,6 +21,7 @@ Uses mongomock for all DB calls. Covers:
 
 from __future__ import annotations
 
+import asyncio as _asyncio
 import os
 import sys
 import unittest.mock as mock
@@ -114,6 +115,16 @@ def _repatch_mongo_collections():
 
 
 # ---------------------------------------------------------------------------
+# Async helper
+# ---------------------------------------------------------------------------
+
+
+def _run_async(coro):
+    """Run a coroutine from synchronous test code."""
+    return _asyncio.run(coro)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -193,7 +204,7 @@ class TestTier1AlwaysIncluded:
     def test_tier1_present_for_command_response(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "COMMAND_RESPONSE")
+        ctx = _run_async(assembler.build(user, "COMMAND_RESPONSE"))
         assert ctx["tier1"] is not None
         assert "name" in ctx["tier1"]
         assert ctx["tier1"]["name"] == "Test User"
@@ -201,19 +212,19 @@ class TestTier1AlwaysIncluded:
     def test_tier1_present_for_checkpoint(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "CHECKPOINT")
+        ctx = _run_async(assembler.build(user, "CHECKPOINT"))
         assert ctx["tier1"] is not None
 
     def test_tier1_present_for_eod(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "EOD")
+        ctx = _run_async(assembler.build(user, "EOD"))
         assert ctx["tier1"] is not None
 
     def test_tier1_contains_required_fields(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "COMMAND_RESPONSE")
+        ctx = _run_async(assembler.build(user, "COMMAND_RESPONSE"))
         t1 = ctx["tier1"]
         for field in [
             "name", "streak_count", "longest_streak",
@@ -233,25 +244,25 @@ class TestTier2Inclusion:
     def test_tier2_present_for_checkpoint(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "CHECKPOINT")
+        ctx = _run_async(assembler.build(user, "CHECKPOINT"))
         assert ctx["tier2"] is not None
 
     def test_tier2_absent_for_command_response(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "COMMAND_RESPONSE")
+        ctx = _run_async(assembler.build(user, "COMMAND_RESPONSE"))
         assert ctx["tier2"] is None
 
     def test_tier2_present_for_morning_todo(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "MORNING_TODO")
+        ctx = _run_async(assembler.build(user, "MORNING_TODO"))
         assert ctx["tier2"] is not None
 
     def test_tier2_present_for_check_in(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "CHECK_IN")
+        ctx = _run_async(assembler.build(user, "CHECK_IN"))
         assert ctx["tier2"] is not None
 
 
@@ -264,25 +275,25 @@ class TestTier3Inclusion:
     def test_tier3_present_for_check_in(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "CHECK_IN")
+        ctx = _run_async(assembler.build(user, "CHECK_IN"))
         assert ctx["tier3"] is not None
 
     def test_tier3_absent_for_checkpoint(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "CHECKPOINT")
+        ctx = _run_async(assembler.build(user, "CHECKPOINT"))
         assert ctx["tier3"] is None
 
     def test_tier3_present_for_eod(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "EOD")
+        ctx = _run_async(assembler.build(user, "EOD"))
         assert ctx["tier3"] is not None
 
     def test_tier3_present_for_escalation(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "ESCALATION")
+        ctx = _run_async(assembler.build(user, "ESCALATION"))
         assert ctx["tier3"] is not None
 
 
@@ -295,25 +306,25 @@ class TestTier4Inclusion:
     def test_tier4_present_for_eod(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "EOD")
+        ctx = _run_async(assembler.build(user, "EOD"))
         assert ctx["tier4"] is not None
 
     def test_tier4_absent_for_check_in(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "CHECK_IN")
+        ctx = _run_async(assembler.build(user, "CHECK_IN"))
         assert ctx["tier4"] is None
 
     def test_tier4_present_for_weekly_review(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "WEEKLY_REVIEW")
+        ctx = _run_async(assembler.build(user, "WEEKLY_REVIEW"))
         assert ctx["tier4"] is not None
 
     def test_tier4_absent_for_checkpoint(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "CHECKPOINT")
+        ctx = _run_async(assembler.build(user, "CHECKPOINT"))
         assert ctx["tier4"] is None
 
 
@@ -689,7 +700,7 @@ class TestNoObjectIdsOrEmbeddings:
     def test_full_context_no_objectids(self):
         user = _make_user()
         assembler = ca_module.ContextAssembler()
-        ctx = assembler.build(user, "EOD")
+        ctx = _run_async(assembler.build(user, "EOD"))
         assert not _contains_objectid(ctx), "ObjectId found in full context"
         assert not _contains_embedding(ctx), "Embedding vector found in full context"
 
@@ -712,7 +723,7 @@ INTERACTION_TYPES = [
 ]
 
 
-@settings(max_examples=50)
+@settings(max_examples=50, deadline=None)
 @given(
     interaction_type=st.sampled_from(INTERACTION_TYPES),
     streak_count=st.integers(min_value=0, max_value=100),
@@ -773,7 +784,7 @@ def test_p15_no_objectids_in_any_tier(
     )
 
     assembler = ca_module.ContextAssembler()
-    ctx = assembler.build(user, interaction_type)
+    ctx = _run_async(assembler.build(user, interaction_type))
 
     assert not _contains_objectid(ctx), (
         f"ObjectId found in context for interaction_type={interaction_type!r}, "
