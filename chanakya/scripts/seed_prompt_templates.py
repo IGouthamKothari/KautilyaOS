@@ -111,6 +111,25 @@ CORE_TEMPLATES = [
         "tone": "NEUTRAL",
         "template_text": "{name}, morning. Here is your todo list for today. Streak: {streak} days.",
     },
+    # FREE_TIME × MENTOR_TALK
+    {
+        "activity_slot": "FREE_TIME",
+        "interaction_type": "MENTOR_TALK",
+        "tone": "MENTOR",
+        "template_text": "{name}, I am here. Streak: {streak} days. Mode: {current_mode}. What do you need to discuss?",
+    },
+    {
+        "activity_slot": "FREE_TIME",
+        "interaction_type": "MENTOR_TALK",
+        "tone": "HARSH",
+        "template_text": "{name}. Speak. What is the issue? I do not have time for vague complaints. Be specific.",
+    },
+    {
+        "activity_slot": "FREE_TIME",
+        "interaction_type": "MENTOR_TALK",
+        "tone": "NEUTRAL",
+        "template_text": "{name}, what can I help you with? Streak: {streak} days.",
+    },
     # LEETCODE × CHECK_IN
     {
         "activity_slot": "LEETCODE",
