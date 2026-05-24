@@ -29,24 +29,6 @@ class ElevenLabsSynthesisError(Exception):
 _audio_cache: dict[str, tuple[bytes, float]] = {}
 _CACHE_TTL_SECONDS = 86400  # 24 hours
 
-# ---------------------------------------------------------------------------
-# Low-credit alert flag (checked by checkpoint runner to avoid circular imports)
-# ---------------------------------------------------------------------------
-
-_low_credit_alert_pending: bool = False
-
-
-def get_and_clear_low_credit_alert() -> bool:
-    """Return the low-credit alert flag and reset it to False.
-
-    Returns:
-        True if a low-credit alert was pending, False otherwise.
-    """
-    global _low_credit_alert_pending
-    value = _low_credit_alert_pending
-    _low_credit_alert_pending = False
-    return value
-
 
 # ---------------------------------------------------------------------------
 # Cache helpers
@@ -90,8 +72,6 @@ class ElevenLabsClient:
         """Synthesise text to audio bytes using the ElevenLabs TTS API.
 
         Checks the in-memory cache first (SHA-256 key, 24-hour TTL).
-        After a successful synthesis, checks the credit balance and sets
-        ``_low_credit_alert_pending`` if fewer than 1000 characters remain.
 
         Args:
             text: The text to synthesise.
@@ -136,31 +116,7 @@ class ElevenLabsClient:
 
         _set_cache(text, voice_id, audio_bytes)
 
-        global _low_credit_alert_pending
-        remaining = self._check_credit_balance()
-        if remaining is not None and remaining < 1000:
-            _low_credit_alert_pending = True
+        # Credit balance check removed — API key doesn't have /v1/user permission
+        # Monitor usage via ElevenLabs dashboard instead
 
         return audio_bytes
-
-    def _check_credit_balance(self) -> int | None:
-        """Fetch remaining character balance from the ElevenLabs /v1/user endpoint.
-
-        Returns:
-            Remaining characters (limit - used), or None on failure.
-        """
-        from chanakya.config import ELEVENLABS_API_KEY
-
-        try:
-            url = f"{self.BASE_URL}/user"
-            headers = {"xi-api-key": ELEVENLABS_API_KEY}
-            response = httpx.get(url, headers=headers, timeout=10.0)
-            response.raise_for_status()
-            data = response.json()
-            limit = data.get("subscription", {}).get("character_limit", 0)
-            used = data.get("subscription", {}).get("character_count", 0)
-            remaining = limit - used
-            return remaining
-        except Exception as exc:
-            logger.warning("Failed to check ElevenLabs credit balance: %s", exc)
-            return None
