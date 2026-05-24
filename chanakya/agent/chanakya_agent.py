@@ -474,11 +474,15 @@ def _push_telegram(user: dict, text: str) -> None:
             logger.error("push_telegram failed for user %s: %s", user.get("_id"), exc)
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is not None and running_loop.is_running():
             asyncio.ensure_future(_send())
         else:
-            loop.run_until_complete(_send())
+            asyncio.run(_send())
     except Exception as exc:
         logger.error("push_telegram scheduling failed: %s", exc)
 

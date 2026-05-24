@@ -89,8 +89,9 @@ async def _safe_reply(message, text: str) -> None:
 def _detect_interaction_type(user: dict) -> str:
     """Detect the appropriate interaction type based on context.
 
-    If the user is responding to a recent scheduled checkpoint (within 30 min),
-    treat as CHECKPOINT so full tier2/tier3 context is loaded.
+    If the user is responding to a recent scheduled checkpoint (within 30 min)
+    that has NOT yet received a verdict, treat as CHECKPOINT so full tier2/tier3
+    context is loaded.
     Otherwise, treat as MENTOR_TALK for natural conversation (tier1 only — faster).
     """
     from datetime import timedelta
@@ -98,8 +99,9 @@ def _detect_interaction_type(user: dict) -> str:
         {
             "user_id": user["_id"],
             "trigger_type": "SCHEDULED",
-            "user_response": None,
             "timestamp": {"$gte": datetime.utcnow() - timedelta(minutes=30)},
+            # Only treat as CHECKPOINT if no verdict has been issued yet
+            "ai_evaluation.verdict": None,
         },
         sort=[("timestamp", -1)],
     )
