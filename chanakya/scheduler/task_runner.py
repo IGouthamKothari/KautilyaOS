@@ -101,7 +101,7 @@ def _fire_nudge(log_id: ObjectId) -> None:
     from chanakya.db.mongo import interaction_logs, checkpoints as cp_col
 
     log = interaction_logs.find_one({"_id": log_id})
-    if not log or log.get("user_response"):
+    if not log or log.get("user_response") or log.get("ai_evaluation", {}).get("verdict"):
         return  # Already handled or missing
 
     uid = log["user_id"]
@@ -160,28 +160,46 @@ def _fire_nudge(log_id: ObjectId) -> None:
 
 
 def _run_async(coro):
-    """Run a coroutine from a sync background thread (thread-safe)."""
-    import asyncio
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
+    """Run a coroutine from a sync background thread (thread-safe).
 
-    if loop and loop.is_running():
-        # We're in the same thread as the loop (unlikely from APScheduler)
+    APScheduler runs jobs in daemon threads that have no event loop.
+    We need to schedule the coroutine on the main thread's running loop.
+    """
+    import asyncio
+
+    try:
+        # Are we already inside a running loop on this thread?
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+
+    if running_loop is not None:
+        # Same thread as the event loop — fire-and-forget
         asyncio.ensure_future(coro)
-    else:
-        # From a background thread: try to find the main loop
-        try:
-            import threading
-            # Get the running loop from the main thread
-            main_loop = asyncio._get_running_loop()
-            if main_loop:
-                asyncio.run_coroutine_threadsafe(coro, main_loop)
-            else:
-                asyncio.run(coro)
-        except Exception:
+        return
+
+    # Background thread: find the main event loop via the global policy
+    # and schedule the coroutine on it using the thread-safe API.
+    try:
+        import threading
+        main_loop = None
+        for thread in threading.enumerate():
+            loop_attr = getattr(thread, "_asyncio_loop", None)
+            if loop_attr is not None and loop_attr.is_running():
+                main_loop = loop_attr
+                break
+
+        if main_loop is not None:
+            asyncio.run_coroutine_threadsafe(coro, main_loop)
+        else:
+            # No running loop found — spin up a fresh one (last resort)
             asyncio.run(coro)
+    except Exception as exc:
+        logger.error("_run_async failed to schedule coroutine: %s", exc)
+        try:
+            asyncio.run(coro)
+        except Exception:
+            pass
 
 
 def _execute_proxy_call_task(task: dict) -> None:

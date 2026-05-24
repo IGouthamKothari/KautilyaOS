@@ -321,9 +321,14 @@ async def twilio_audio(session_id: str):
 
 
 @router.get("/twilio/audio/turn/{session_id}")
-async def twilio_audio_turn(session_id: str, farewell: Optional[str] = None):
+async def twilio_audio_turn(session_id: str, farewell: Optional[str] = None, t: Optional[str] = None):
     """Serve mid-call turn audio from memory cache."""
-    cache_key = f"{session_id}_farewell" if farewell else f"{session_id}_turn"
+    if farewell:
+        cache_key = f"{session_id}_farewell"
+    elif t:
+        cache_key = f"{session_id}_turn_{t}"
+    else:
+        cache_key = f"{session_id}_turn"
     audio = _audio_cache.get(cache_key)
     if not audio:
         logger.warning("Audio cache MISS for session %s (key=%s)", session_id, cache_key)
@@ -479,13 +484,17 @@ async def twilio_voice_respond(
     log_input("CALL", session.get("user_id"), user_speech, extra={"session_id": session_id, "confidence": Confidence})
     log_output("CALL", session.get("user_id"), reply, extra={"session_id": session_id})
 
+    # Use turn index in cache key to avoid collision on Twilio retries
+    turn_index = len(session["history"])
+    turn_cache_key = f"{session_id}_turn_{turn_index}"
+
     # Synthesize reply via ElevenLabs
     turn_audio = _synthesize_for_turn(reply, session)
     if turn_audio:
-        _cache_audio(f"{session_id}_turn", turn_audio)
+        _cache_audio(turn_cache_key, turn_audio)
         from chanakya.config import WEBHOOK_URL
         base = (WEBHOOK_URL or "").rstrip("/")
-        audio_url = f"{base}/twilio/audio/turn/{session_id}"
+        audio_url = f"{base}/twilio/audio/turn/{session_id}?t={turn_index}"
     else:
         audio_url = None
         logger.warning("ElevenLabs synthesis failed for turn in session %s", session_id)
@@ -503,67 +512,18 @@ async def twilio_voice_respond(
 async def _get_chanakya_voice_reply(session: dict) -> str:
     """Generate Chanakya's reply for a voice turn.
 
-    For non-proxy calls: routes through ChanakyaAgent so tools are available
-    (schedule updates, reminders, contacts, etc.) — same brain as text chat.
-    For proxy calls: uses a lightweight OpenAI call with a polite persona.
+    Uses a lightweight direct OpenAI call with the full call history for context.
+    The full ChanakyaAgent pipeline (12s+ latency) is too slow for live phone
+    conversation — tool calls can be followed up on Telegram after the call.
 
-    Returns a plain spoken reply (≤ 3 sentences, no markdown).
+    For proxy calls: uses a polite persona instead of the Chanakya persona.
+    Returns a plain spoken reply (1-3 sentences, no markdown).
     """
     is_proxy = session.get("proxy", False)
 
     if is_proxy:
         return await _get_proxy_voice_reply(session)
 
-    # Non-proxy: use the full agent with tool access
-    user_id = session.get("user_id", "")
-    if not user_id:
-        return "I encountered an issue. Please try again."
-
-    try:
-        from bson import ObjectId
-        from chanakya.db.mongo import users as users_col
-        from chanakya.agent.chanakya_agent import ChanakyaAgent
-
-        user_doc = users_col.find_one({"_id": ObjectId(user_id)})
-        if not user_doc:
-            return "I encountered an issue. Please try again."
-
-        # Build the user's speech as the input, with call history as context
-        history_text = ""
-        if len(session["history"]) > 2:
-            # Include last few turns as context
-            recent = session["history"][:-1][-4:]  # last 4 turns before current
-            history_text = "\n".join(
-                f"{'Chanakya' if t['role'] == 'assistant' else 'User'}: {t['content']}"
-                for t in recent
-            )
-
-        user_speech = session["history"][-1]["content"] if session["history"] else ""
-        if history_text:
-            full_input = (
-                f"[VOICE CALL — respond in 1-3 spoken sentences, no markdown, no bullets, no ALL CAPS identifiers]\n"
-                f"Recent conversation:\n{history_text}\n\n"
-                f"User just said: {user_speech}"
-            )
-        else:
-            full_input = (
-                f"[VOICE CALL — respond in 1-3 spoken sentences, no markdown, no bullets, no ALL CAPS identifiers]\n"
-                f"User said: {user_speech}"
-            )
-
-        agent = ChanakyaAgent(user_doc)
-        decision = await agent.invoke(full_input, "MENTOR_TALK")
-
-        if decision and decision.response_text:
-            import re
-            reply = decision.response_text
-            reply = _clean_for_speech(reply)
-            return reply
-
-    except Exception as exc:
-        logger.error("Agent-based voice reply failed for user %s: %s", user_id, exc)
-
-    # Fallback to simple OpenAI call
     return await _get_simple_voice_reply(session)
 
 
