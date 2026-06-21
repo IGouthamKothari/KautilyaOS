@@ -32,6 +32,7 @@ def start_runner() -> None:
     if not scheduler.running:
         scheduler.start()
     refresh_all_schedules()
+    recover_missed_checkpoints()
     # Add a safety periodic refresh every hour in case of manual DB edits
     scheduler.add_job(refresh_all_schedules, "interval", hours=1, id="periodic_refresh")
     logger.info("Precision Checkpoint Runner started with event-driven triggers.")
@@ -166,6 +167,85 @@ def refresh_all_schedules() -> None:
         logger.info("Synchronized %d users' schedules (including daily overrides) into high-precision triggers.", len(active_users))
     except Exception as e:
         logger.error("Failed to refresh schedules from DB: %s", e)
+
+
+def recover_missed_checkpoints() -> None:
+    """Fire any checkpoints that were missed while the server was down.
+
+    For each active user, checks if any recurring checkpoint's last_triggered
+    is older than expected (missed its window). Fires them once with a
+    max staleness of 60 minutes — anything older is considered abandoned.
+    """
+    from chanakya.db.mongo import checkpoints, users as users_col
+
+    MAX_STALENESS = timedelta(minutes=60)
+
+    try:
+        active_users = list(users_col.find({"active": True}))
+        recovered = 0
+
+        for user in active_users:
+            tz = pytz.timezone(user.get("timezone", "Asia/Kolkata"))
+            now_local = datetime.now(tz)
+            now_utc = datetime.utcnow()
+
+            user_cps = list(checkpoints.find({"user_id": user["_id"], "active": True}))
+
+            for cp in user_cps:
+                last_triggered = cp.get("last_triggered")
+                if not last_triggered:
+                    continue
+
+                time_str = cp.get("time", "")
+                try:
+                    hour, minute = map(int, time_str.split(":"))
+                except (ValueError, AttributeError):
+                    continue
+
+                # Check if this checkpoint should have fired today
+                expected_today = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+                # Day-of-week filter
+                if cp.get("days"):
+                    day_names = [d.lower() for d in cp["days"]]
+                    current_day = now_local.strftime("%A").lower()
+                    if current_day not in day_names:
+                        continue
+
+                # Only recover if: expected time has passed, it wasn't triggered today,
+                # and it's within the staleness window
+                if expected_today > now_local:
+                    continue  # Not due yet today
+
+                time_since_expected = now_local - expected_today
+                if time_since_expected > MAX_STALENESS:
+                    continue  # Too old, skip
+
+                # Check if it was already triggered today (within 23h dedup window)
+                if last_triggered and (now_utc - last_triggered) < timedelta(hours=23):
+                    # Already fired within the dedup window
+                    last_triggered_local = last_triggered.replace(tzinfo=pytz.utc).astimezone(tz)
+                    if last_triggered_local.date() == now_local.date():
+                        continue
+
+                # This checkpoint was missed — fire it now
+                if _should_skip_checkpoint(user, cp):
+                    continue
+
+                logger.info(
+                    "Recovering missed checkpoint %s (expected %s, last_triggered %s)",
+                    cp["_id"], expected_today.strftime("%H:%M"), last_triggered
+                )
+                try:
+                    _fire_checkpoint(user, cp)
+                    recovered += 1
+                except Exception as exc:
+                    logger.error("Failed to recover checkpoint %s: %s", cp["_id"], exc)
+
+        if recovered:
+            logger.info("Recovered %d missed checkpoints on startup.", recovered)
+    except Exception as e:
+        logger.error("recover_missed_checkpoints failed: %s", e)
 
 
 def _schedule_checkpoint(user: dict, cp: dict) -> None:

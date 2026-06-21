@@ -163,6 +163,7 @@ def write_schedule_to_db(user_id, dry_run: bool = False) -> tuple[int, int]:
             "prompt_template": act.get("notes", act["activity"]),
             "persistent_nudge": act.get("persistent_nudge", False),
             "persistent_nudge_interval_minutes": act.get("persistent_nudge_interval_minutes", 5),
+            "nudge_window_minutes": act.get("duration_min", 45),
             "active": True,
             "failure_punishment": {"type": "WARN"},
             "last_triggered": None,

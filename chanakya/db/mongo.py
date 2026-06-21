@@ -491,7 +491,9 @@ def add_mindset_entry(
     if category not in MINDSET_CATEGORIES:
         category = "note"
 
+    import uuid as _uuid
     entry = {
+        "_id": str(_uuid.uuid4()),
         "category": category,
         "text": text.strip(),
         "source": source.strip(),

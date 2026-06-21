@@ -60,6 +60,22 @@ TOOL_ASSIGNMENTS: dict[str, list[str]] = {
         "update_goal",
         "list_goals",
         "abandon_goal_tool",
+        # Google Calendar
+        "google_list_events",
+        "google_create_event",
+        "google_update_event",
+        "google_delete_event",
+        "google_find_event",
+        "google_add_reminder",
+        # Gmail
+        "gmail_list_inbox",
+        "gmail_read_email",
+        "gmail_search",
+        "gmail_mark_read",
+        "gmail_mark_important",
+        "gmail_get_thread",
+        "gmail_send_email",
+        "gmail_reply_email",
     ],
     "kautilya": [
         "get_financial_ledger",
@@ -72,6 +88,14 @@ TOOL_ASSIGNMENTS: dict[str, list[str]] = {
         "set_goal",
         "update_goal",
         "list_goals",
+        # Google Calendar (to see financial deadlines, meetings)
+        "google_list_events",
+        "google_create_event",
+        "google_find_event",
+        # Gmail (to read financial emails)
+        "gmail_list_inbox",
+        "gmail_read_email",
+        "gmail_search",
         # Shared read-only
         "get_user_status",
         "fetch_day_schedule",
@@ -82,6 +106,15 @@ TOOL_ASSIGNMENTS: dict[str, list[str]] = {
         # Shared read-only
         "get_user_status",
         "fetch_day_schedule",
+        # Calendar — correlate rituals/health appointments with real schedule
+        "google_list_events",
+        "google_create_event",
+        "google_find_event",
+        "google_add_reminder",
+        # Gmail — read health-related emails (appointment confirmations, lab results)
+        "gmail_list_inbox",
+        "gmail_read_email",
+        "gmail_search",
     ],
     "vishvakarma": [
         # Future: code review, tech architecture tools

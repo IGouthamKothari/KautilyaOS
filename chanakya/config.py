@@ -86,6 +86,11 @@ VISHVAKARMA_MODEL: str = os.getenv("VISHVAKARMA_MODEL", "gpt-5-mini-2025-08-07")
 DARBAR_ENABLED: bool = os.getenv("DARBAR_ENABLED", "false").lower() in ("true", "1", "yes")
 ROUTER_MODEL: str = os.getenv("ROUTER_MODEL", UTILITY_MODEL_NAME)
 
+# Google OAuth (Calendar + Gmail)
+GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+
 # WEBHOOK_URL: public HTTPS URL Telegram will POST updates to.
 # Example: https://your-app.onrender.com  (no trailing slash, no /telegram path)
 # Telegram requires HTTPS — use Render, EC2 with SSL, or ngrok for local testing.

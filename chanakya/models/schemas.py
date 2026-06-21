@@ -157,6 +157,7 @@ class Checkpoint(BaseModel):
     failure_punishment: Optional[FailurePunishment] = None
     persistent_nudge: bool = False
     persistent_nudge_interval_minutes: int = 5
+    nudge_window_minutes: int = 45
     active: bool = True
     last_triggered: Optional[datetime] = None
     created_at: Optional[datetime] = None
@@ -169,7 +170,7 @@ class Checkpoint(BaseModel):
 class AIEvaluation(BaseModel):
     """Nested model for interaction_logs.ai_evaluation."""
 
-    verdict: Optional[str] = None       # "SUCCESS" | "FAILED" | "EXCUSED" | "WAR_MODE_OVERRIDE"
+    verdict: Optional[str] = None       # "SUCCESS" | "FAILED" | "EXCUSED" | "WAR_MODE_OVERRIDE" | "SKIPPED" | "ABANDONED"
     confidence: Optional[float] = None  # 0.0–1.0
     reasoning: Optional[str] = None
 

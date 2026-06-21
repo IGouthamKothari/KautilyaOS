@@ -322,6 +322,43 @@ def _build_system_prompt(context: dict, user: dict) -> str:
     sections.append(_format_templates(templates))
 
     sections.append(f"""
+=== DISCIPLINE OPERATING SYSTEM ===
+The objective is not motivation. Motivation is temporary.
+The objective is building a person whose word to himself is unquestionable.
+
+IDENTITY > OUTCOMES:
+Every action has two outcomes: practical (did it or not) and identity (I am someone who keeps promises / I am someone who breaks them). Identity outcome is always more important. Missing one workout does not destroy fitness — missing it while teaching yourself that commitments are optional damages identity. Identity compounds over years.
+
+SELF-NEGOTIATION IS THE ENEMY:
+"I'll do it later." "Just today doesn't matter." "I don't feel like it." — the moment negotiation becomes available, discipline leaks into every area of life. Workout becomes optional. Sleep becomes optional. Learning becomes optional. Everything becomes optional. Eliminate negotiation as a default behavior.
+
+COST FRAMEWORK — nothing is free:
+Before accepting any skip or excuse, calculate the bill being paid. Skipping the workout costs: reduced momentum, reduced self-respect, reduced self-trust, increased probability of skipping tomorrow. Every decision carries a bill. Disciplined people focus on the price being paid.
+
+NEVER MISS TWICE:
+Missing once is a mistake. Missing twice is a pattern. Recovery is mandatory. Punishment is not. If a workout was missed → the next workout is mandatory. Immediate correction. No guilt spiraling. Just return.
+
+MINIMUM VIABLE VICTORY:
+On hard days, perfection is not required — presence is. Zero is dangerous. Tiny execution is powerful. 5 pushups > 0. 10 minutes of study > 0. A small victory protects identity. Complete absence weakens it.
+
+FEELINGS ARE INFORMATION, NOT COMMANDS:
+"I don't feel like training" = information. Not a valid reason to skip. "I feel tired" = information. Not a decision. Moods change. Emotions change. Commitments do not. Actions are determined by values and commitments, not temporary emotional states.
+
+RELIABILITY > INTENSITY:
+Anyone can be obsessed for one week. Few people train consistently for years. Long-term reliability creates extraordinary outcomes. Consistency defeats intensity every time.
+
+FUTURE SELF STANDARD:
+When avoiding a task, ask: "If I meet my future self five years from now, what explanation do I give for not doing this?" Most excuses collapse under that question. Act in a way that earns respect from the future version of yourself.
+
+HOW TO APPLY THIS IN EVERY RESPONSE:
+1. Identify the actual decision being made.
+2. Calculate the cost of avoiding it.
+3. Name the identity being reinforced by that choice.
+4. Point toward the smallest action that can still be completed today.
+5. Never give generic motivation. Never use clichés. Never provide emotional comfort without accountability.
+6. Separate legitimate obstacle from excuse. Always guide toward action.
+7. A disciplined person is not someone who never fails — they are someone who always returns.
+
 === TOOL USAGE GUIDELINES ===
 You have tools available via function calling. The user_id for all tool calls is: {user_id_str}
 
@@ -408,7 +445,7 @@ def _parse_llm_decision(raw_response: str, model_used: str) -> LLMDecision | Non
 
 _DECISION_PROMPT = """Now produce your final assessment as a JSON object with these fields:
 {
-  "verdict": "SUCCESS" | "FAILED" | "EXCUSED" | "WAR_MODE_OVERRIDE" | null,
+  "verdict": "SUCCESS" | "FAILED" | "EXCUSED" | "WAR_MODE_OVERRIDE" | "SKIPPED" | null,
   "actions": [{"type": "increment_streak"|"reset_streak"|"send_telegram", "params": {...}}],
   "tone": "HARSH" | "MENTOR" | "NEUTRAL" | "CELEBRATORY",
   "response_text": "your message to the user (use **bold**, _italic_, • bullets)",
@@ -417,7 +454,8 @@ _DECISION_PROMPT = """Now produce your final assessment as a JSON object with th
   "model_used": ""
 }
 Only include actions for streak/state changes. Tool calls are already handled.
-If this is casual conversation with no checkpoint to judge, set verdict to null."""
+If this is casual conversation with no checkpoint to judge, set verdict to null.
+If the user explicitly declines a checkpoint (says no, skip, leave it, move on, not doing it), set verdict to SKIPPED and response_text to "Got it. Moving on." — do not judge or argue."""
 
 
 async def _compress_history(user: dict, messages: list[dict]) -> str:
@@ -840,8 +878,6 @@ class ChanakyaAgent:
 
         # Step 2: Build conversation history
         scrubbed_input = scrub_context(raw_input, user["_id"])
-        if media_url:
-            scrubbed_input = f"{scrubbed_input}\n[Media URL: {media_url}]"
 
         from chanakya.db.mongo import get_recent_messages, get_message_count
 
@@ -871,7 +907,15 @@ class ChanakyaAgent:
             else:
                 messages.append(AIMessage(content=msg["content"]))
 
-        messages.append(HumanMessage(content=scrubbed_input))
+        # Build final user message — multimodal if image attached
+        if media_url:
+            user_msg = HumanMessage(content=[
+                {"type": "text", "text": scrubbed_input or "Here is the image."},
+                {"type": "image_url", "image_url": {"url": media_url, "detail": "high"}},
+            ])
+        else:
+            user_msg = HumanMessage(content=scrubbed_input)
+        messages.append(user_msg)
 
         # Step 3: Native tool calling loop
         model_used: str = MODEL

@@ -74,17 +74,17 @@ async def twilio_call_status(
         if CallStatus == "completed":
             session_id = str(log["_id"]) if log else None
             if session_id:
-                from chanakya.db.mongo import voice_sessions
-                session = voice_sessions.find_one({"_id": session_id})
+                from chanakya.db.mongo import voice_sessions as _vs
+                session = _vs.find_one({"_id": session_id})
                 if session:
                     # Clean up the session (ephemeral)
-                    voice_sessions.delete_one({"_id": session_id})
-                    
+                    _vs.delete_one({"_id": session_id})
+
                     if session.get("proxy"):
                         import asyncio
                         asyncio.ensure_future(_send_proxy_call_summary(session_id, session))
-                    
-                    # Also mark the task as COMPLETED if it exists and wasn't handled by proxy summary
+
+                    # Mark the task as COMPLETED if it exists and wasn't handled by proxy summary
                     task_id = session.get("task_id")
                     if task_id and not session.get("proxy"):
                         agent_tasks.update_one(
@@ -92,6 +92,15 @@ async def twilio_call_status(
                             {"$set": {"status": "COMPLETED"}}
                         )
                         logger.info("Task %s marked COMPLETED after user call.", task_id)
+                else:
+                    # Session already cleaned up by the respond endpoint (end-call keyword).
+                    # Still try to mark associated task as completed.
+                    if task:
+                        agent_tasks.update_one(
+                            {"_id": task["_id"]},
+                            {"$set": {"status": "COMPLETED"}}
+                        )
+                        logger.info("Task %s marked COMPLETED (session already cleaned).", task["_id"])
 
     return {"status": "ok"}
 
@@ -174,6 +183,7 @@ def create_voice_session(
         "context": context,
         "conversation_context": conversation_context,
         "history": [],
+        "silence_count": 0,
         "proxy": proxy,
         "proxy_contact_name": proxy_contact_name,
         "proxy_topic": proxy_topic,
@@ -210,48 +220,67 @@ def _clean_for_speech(text: str) -> str:
     return text
 
 
-def _synthesize_for_turn(text: str, session: dict) -> bytes | None:
-    """Synthesize text via ElevenLabs using the session's user voice_id.
-
-    Returns MP3 bytes on success, None on failure.
-    Falls back gracefully — caller must handle None.
-    """
-    from chanakya.integrations.elevenlabs_client import ElevenLabsClient, ElevenLabsSynthesisError
+def _get_voice_id(session: dict) -> str | None:
+    """Resolve the ElevenLabs voice_id for this session."""
     from chanakya.db.mongo import users as users_col
     from bson import ObjectId
-
     user_id = session.get("user_id", "")
-    voice_id = None
-
-    # Get voice_id from user doc
     if user_id:
         try:
             user_doc = users_col.find_one({"_id": ObjectId(user_id)})
             if user_doc:
-                voice_id = user_doc.get("elevenlabs_voice_id", "")
+                vid = user_doc.get("elevenlabs_voice_id", "")
+                if vid:
+                    return vid
         except Exception:
             pass
-
-    # Fall back to config-level voice
-    if not voice_id:
-        try:
-            from chanakya.config import ELEVENLABS_VOICE_ID
-            voice_id = ELEVENLABS_VOICE_ID
-        except Exception:
-            pass
-
-    if not voice_id:
-        logger.warning("No ElevenLabs voice_id available for session %s", session.get("user_id"))
+    try:
+        from chanakya.config import ELEVENLABS_VOICE_ID
+        return ELEVENLABS_VOICE_ID
+    except Exception:
         return None
 
+
+def _synthesize_for_turn(text: str, session: dict) -> bytes | None:
+    """Synchronous ElevenLabs synthesis — used only from sync callers (opening, farewell)."""
+    from chanakya.integrations.elevenlabs_client import ElevenLabsClient, ElevenLabsSynthesisError
+    voice_id = _get_voice_id(session)
+    if not voice_id:
+        return None
     try:
-        client = ElevenLabsClient()
-        audio_bytes = client.synthesise(text, voice_id)
-        logger.info("ElevenLabs turn synthesis: %d bytes for user %s", len(audio_bytes), str(user_id))
+        audio_bytes = ElevenLabsClient().synthesise(text, voice_id)
+        logger.info("ElevenLabs synthesis: %d bytes", len(audio_bytes))
         return audio_bytes
     except ElevenLabsSynthesisError as exc:
-        logger.warning("ElevenLabs turn synthesis failed: %s", exc)
+        logger.warning("ElevenLabs synthesis failed: %s", exc)
         return None
+
+
+async def _synthesize_for_turn_async(text: str, session: dict) -> bytes | None:
+    """Async ElevenLabs synthesis with retry on 429 rate limit."""
+    import asyncio
+    voice_id = _get_voice_id(session)
+    if not voice_id:
+        return None
+    from chanakya.integrations.elevenlabs_client import ElevenLabsClient, ElevenLabsSynthesisError
+    client = ElevenLabsClient()
+    for attempt in range(3):
+        try:
+            audio_bytes = await asyncio.to_thread(client.synthesise, text, voice_id)
+            logger.info("ElevenLabs async synthesis: %d bytes", len(audio_bytes))
+            return audio_bytes
+        except ElevenLabsSynthesisError as exc:
+            if "429" in str(exc) and attempt < 2:
+                wait = (attempt + 1) * 1.5
+                logger.warning("ElevenLabs 429 — retrying in %.1fs (attempt %d/3)", wait, attempt + 1)
+                await asyncio.sleep(wait)
+            else:
+                logger.warning("ElevenLabs async synthesis failed: %s", exc)
+                return None
+        except Exception as exc:
+            logger.warning("ElevenLabs async synthesis failed: %s", exc)
+            return None
+    return None
 
 
 def _safe_xml(text: str) -> str:
@@ -279,7 +308,7 @@ def _build_gather_twiml(
             audio_url = f"{base}/twilio/audio/turn/{session_id}"
 
     if audio_url:
-        speech_element = f"<Pause length=\"1\"/><Play>{_safe_xml(audio_url)}</Play>"
+        speech_element = f"<Play>{_safe_xml(audio_url)}</Play>"
     else:
         # Absolute last resort — should rarely happen (ElevenLabs down)
         speech_element = f"<Say>{_safe_xml(say_text)}</Say>"
@@ -347,38 +376,91 @@ async def twilio_voice_entry(session_id: str):
     """TwiML entry point for a two-way voice conversation.
 
     Plays the ElevenLabs-synthesized opening (if available) from DB.
+    Uses a silence counter to prevent infinite redirect loops.
     """
-    session = voice_sessions.find_one({"_id": session_id})
-    if not session:
-        twiml = (
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            "<Response><Say>Session not found. Goodbye.</Say></Response>"
+    try:
+        session = voice_sessions.find_one({"_id": session_id})
+        if not session:
+            twiml = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                "<Response><Say>Session not found. Goodbye.</Say><Hangup/></Response>"
+            )
+            return Response(content=twiml, media_type="application/xml")
+
+        # Silence counter: if Gather times out without speech, Twilio redirects
+        # back here. Track how many times to prevent infinite loops.
+        silence_count = session.get("silence_count", 0)
+        MAX_SILENCE = 3
+
+        if silence_count >= MAX_SILENCE:
+            farewell = "No response detected. Ending call. Goodbye."
+            farewell_audio = _synthesize_for_turn(farewell, session)
+            if farewell_audio:
+                _cache_audio(f"{session_id}_farewell", farewell_audio)
+                from chanakya.config import WEBHOOK_URL
+                base = (WEBHOOK_URL or "").rstrip("/")
+                audio_url = f"{base}/twilio/audio/turn/{session_id}?farewell=1"
+                twiml = (
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    f"<Response><Play>{_safe_xml(audio_url)}</Play><Hangup/></Response>"
+                )
+            else:
+                twiml = (
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    f"<Response><Say>{_safe_xml(farewell)}</Say><Hangup/></Response>"
+                )
+            return Response(content=twiml, media_type="application/xml")
+
+        # Increment silence counter (reset in respond endpoint on successful speech)
+        voice_sessions.update_one(
+            {"_id": session_id},
+            {"$inc": {"silence_count": 1}}
         )
+
+        already_started = len(session.get("history", [])) > 0
+
+        if not already_started:
+            # First entry: play the opening
+            opening = session["context"] or "Chanakya here. What do you need to discuss?"
+            opening = _clean_for_speech(opening)
+            session["history"].append({"role": "assistant", "content": opening})
+
+            log_input("CALL", session.get("user_id"), f"[CALL CONNECTED] session={session_id}")
+            log_output("CALL", session.get("user_id"), opening, extra={"session_id": session_id, "turn": "opening"})
+
+            voice_sessions.update_one(
+                {"_id": session_id},
+                {"$set": {"history": session["history"]}}
+            )
+
+            audio_url: str | None = None
+            if _audio_cache.get(session_id):
+                from chanakya.config import WEBHOOK_URL
+                base = (WEBHOOK_URL or "").rstrip("/")
+                audio_url = f"{base}/twilio/audio/{session_id}"
+
+            twiml = _build_gather_twiml(session_id, opening, audio_url=audio_url, session=session)
+        else:
+            # Mid-call silence redirect: don't restart, just prompt
+            prompt = "Are you still there? Speak now or I'll end the call."
+            prompt_audio = _synthesize_for_turn(prompt, session)
+            audio_url = None
+            if prompt_audio:
+                _cache_audio(f"{session_id}_turn", prompt_audio)
+                from chanakya.config import WEBHOOK_URL
+                base = (WEBHOOK_URL or "").rstrip("/")
+                audio_url = f"{base}/twilio/audio/turn/{session_id}"
+            twiml = _build_gather_twiml(session_id, prompt, audio_url=audio_url, session=session)
+
         return Response(content=twiml, media_type="application/xml")
 
-    opening = session["context"] or "Chanakya here. What do you need to discuss?"
-    opening = _clean_for_speech(opening)
-    session["history"].append({"role": "assistant", "content": opening})
-
-    log_input("CALL", session.get("user_id"), f"[CALL CONNECTED] session={session_id}")
-    log_output("CALL", session.get("user_id"), opening, extra={"session_id": session_id, "turn": "opening"})
-
-    # Use ElevenLabs audio if we have it in memory cache
-    audio_url: str | None = None
-    if _audio_cache.get(session_id):
-        from chanakya.config import WEBHOOK_URL
-        base = (WEBHOOK_URL or "").rstrip("/")
-        audio_url = f"{base}/twilio/audio/{session_id}"
-
-    twiml = _build_gather_twiml(session_id, opening, audio_url=audio_url, session=session)
-
-    # Update session history in DB
-    voice_sessions.update_one(
-        {"_id": session_id},
-        {"$set": {"history": session["history"]}}
-    )
-
-    return Response(content=twiml, media_type="application/xml")
+    except Exception as exc:
+        logger.error("twilio_voice_entry CRASHED for session %s: %s", session_id, exc, exc_info=True)
+        twiml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            "<Response><Say>I encountered a temporary issue. Please try again shortly. Goodbye.</Say><Hangup/></Response>"
+        )
+        return Response(content=twiml, media_type="application/xml")
 
 
 @router.post("/twilio/voice/respond/{session_id}")
@@ -387,126 +469,163 @@ async def twilio_voice_respond(
     SpeechResult: Optional[str] = Form(None),
     Confidence: Optional[str] = Form(None),
 ):
-    """Handle user's spoken response and continue the conversation."""
-    session = voice_sessions.find_one({"_id": session_id})
-    if not session:
+    """Handle user's spoken response and continue the conversation.
+
+    Wrapped entirely in try/except so Twilio ALWAYS gets valid TwiML back,
+    never a 500 that causes "application error" on the caller's end.
+    """
+    try:
+        session = voice_sessions.find_one({"_id": session_id})
+        if not session:
+            twiml = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                "<Response><Say>Session expired. Goodbye.</Say><Hangup/></Response>"
+            )
+            return Response(content=twiml, media_type="application/xml")
+
+        user_speech = (SpeechResult or "").strip()
+        logger.info(
+            "Voice respond: session=%s speech=%r confidence=%s",
+            session_id,
+            user_speech[:100],
+            Confidence,
+        )
+
+        if not user_speech:
+            retry_text = "I didn't catch that. Say it again."
+            retry_audio = _synthesize_for_turn(retry_text, session)
+            if retry_audio:
+                _cache_audio(f"{session_id}_turn", retry_audio)
+                from chanakya.config import WEBHOOK_URL
+                base = (WEBHOOK_URL or "").rstrip("/")
+                audio_url = f"{base}/twilio/audio/turn/{session_id}"
+            else:
+                audio_url = None
+            twiml = _build_gather_twiml(session_id, retry_text, audio_url=audio_url, session=session)
+            return Response(content=twiml, media_type="application/xml")
+
+        # User spoke — reset silence counter
+        voice_sessions.update_one({"_id": session_id}, {"$set": {"silence_count": 0}})
+
+        # End-of-call keywords
+        end_keywords = {"bye", "goodbye", "that's all", "thats all", "done", "end call", "stop"}
+        if any(kw in user_speech.lower() for kw in end_keywords):
+            session_copy = dict(session)
+            voice_sessions.delete_one({"_id": session_id})
+
+            if session_copy.get("proxy"):
+                import asyncio
+                asyncio.ensure_future(_send_proxy_call_summary(session_id, session_copy))
+
+            owner = session_copy.get("owner_name", "the owner")
+            farewell = (
+                f"Thank you. I'll pass this along to {owner}. Goodbye."
+                if session_copy.get("proxy")
+                else "Understood. Execute the plan. No excuses. Goodbye."
+            )
+            farewell_audio = _synthesize_for_turn(farewell, session_copy)
+            if farewell_audio:
+                cache_key = f"{session_id}_farewell"
+                _cache_audio(cache_key, farewell_audio)
+                from chanakya.config import WEBHOOK_URL
+                base = (WEBHOOK_URL or "").rstrip("/")
+                audio_url = f"{base}/twilio/audio/turn/{session_id}?farewell=1"
+            else:
+                audio_url = None
+            twiml = _build_gather_twiml(session_id, farewell, is_final=True, audio_url=audio_url, session=session_copy)
+            return Response(content=twiml, media_type="application/xml")
+
+        session["history"].append({"role": "user", "content": user_speech})
+
+        MAX_TURNS = 8  # assistant turns before gracefully ending
+        assistant_turns = sum(1 for m in session["history"] if m["role"] == "assistant")
+
+        if assistant_turns >= MAX_TURNS:
+            farewell = "We've covered enough. Execute what was discussed. Goodbye."
+            farewell_audio = _synthesize_for_turn(farewell, session)
+            voice_sessions.delete_one({"_id": session_id})
+            if farewell_audio:
+                _cache_audio(f"{session_id}_farewell", farewell_audio)
+                from chanakya.config import WEBHOOK_URL
+                base = (WEBHOOK_URL or "").rstrip("/")
+                audio_url = f"{base}/twilio/audio/turn/{session_id}?farewell=1"
+            else:
+                audio_url = None
+            twiml = _build_gather_twiml(session_id, farewell, is_final=True, audio_url=audio_url, session=session)
+            return Response(content=twiml, media_type="application/xml")
+
+        import asyncio as _asyncio
+
+        # Run OpenAI and ElevenLabs in parallel to cut latency in half.
+        # We speculatively synthesize a short filler while waiting for the real reply,
+        # then synthesize the real reply once we have it — both happen concurrently.
+        try:
+            reply_task = _asyncio.ensure_future(_get_chanakya_voice_reply(session))
+            reply = await reply_task
+            if not reply:
+                reply = "Continue. What else?"
+        except Exception as exc:
+            logger.error("Voice reply failed for session %s: %s", session_id, exc, exc_info=True)
+            reply = "I encountered an issue. Reflect on what you said and act accordingly."
+
+        reply = _clean_for_speech(reply)
+        session["history"].append({"role": "assistant", "content": reply})
+
+        if len(session["history"]) > 16:
+            session["history"] = session["history"][-16:]
+
+        # Fire context update and ElevenLabs synthesis in parallel
+        turn_index = len(session["history"])
+        turn_cache_key = f"{session_id}_turn_{turn_index}"
+
+        async def _do_context_update():
+            try:
+                from chanakya.agent.context_assembler import update_conversation_context
+                from chanakya.db.mongo import users as users_col
+                from bson import ObjectId
+                user_id = session.get("user_id", "")
+                if user_id:
+                    user_doc = users_col.find_one({"_id": ObjectId(user_id)})
+                    if user_doc:
+                        await update_conversation_context(user_doc, role="user", content=user_speech, channel="call")
+                        await update_conversation_context(user_doc, role="assistant", content=reply, channel="call")
+            except Exception as exc:
+                logger.warning("Context update failed for session %s: %s", session_id, exc)
+
+        # ElevenLabs synthesis and context update run concurrently
+        synth_task = _asyncio.ensure_future(_synthesize_for_turn_async(reply, session))
+        ctx_task = _asyncio.ensure_future(_do_context_update())
+        turn_audio = await synth_task
+        _asyncio.ensure_future(ctx_task)  # don't await — fire and forget
+
+        log_input("CALL", session.get("user_id"), user_speech, extra={"session_id": session_id, "confidence": Confidence})
+        log_output("CALL", session.get("user_id"), reply, extra={"session_id": session_id})
+
+        if turn_audio:
+            _cache_audio(turn_cache_key, turn_audio)
+            from chanakya.config import WEBHOOK_URL
+            base = (WEBHOOK_URL or "").rstrip("/")
+            audio_url = f"{base}/twilio/audio/turn/{session_id}?t={turn_index}"
+        else:
+            audio_url = None
+            logger.warning("ElevenLabs synthesis failed for turn in session %s — using <Say> fallback", session_id)
+
+        # Update session in DB
+        voice_sessions.update_one(
+            {"_id": session_id},
+            {"$set": {"history": session["history"]}}
+        )
+
+        twiml = _build_gather_twiml(session_id, reply, audio_url=audio_url, session=session)
+        return Response(content=twiml, media_type="application/xml")
+
+    except Exception as exc:
+        logger.error("twilio_voice_respond CRASHED for session %s: %s", session_id, exc, exc_info=True)
         twiml = (
             '<?xml version="1.0" encoding="UTF-8"?>'
-            "<Response><Say>Session expired. Goodbye.</Say></Response>"
+            "<Response><Say>I hit a temporary problem. Let me call you back. Goodbye.</Say><Hangup/></Response>"
         )
         return Response(content=twiml, media_type="application/xml")
-
-    user_speech = (SpeechResult or "").strip()
-    logger.info(
-        "Voice respond: session=%s speech=%r confidence=%s",
-        session_id,
-        user_speech[:100],
-        Confidence,
-    )
-
-    if not user_speech:
-        retry_text = "I didn't catch that. Say it again."
-        retry_audio = _synthesize_for_turn(retry_text, session)
-        if retry_audio:
-            _cache_audio(f"{session_id}_turn", retry_audio)
-            from chanakya.config import WEBHOOK_URL
-            base = (WEBHOOK_URL or "").rstrip("/")
-            audio_url = f"{base}/twilio/audio/turn/{session_id}"
-        else:
-            audio_url = None
-        twiml = _build_gather_twiml(session_id, retry_text, audio_url=audio_url, session=session)
-        return Response(content=twiml, media_type="application/xml")
-
-    # End-of-call keywords
-    end_keywords = {"bye", "goodbye", "that's all", "thats all", "done", "end call", "stop"}
-    if any(kw in user_speech.lower() for kw in end_keywords):
-        session_copy = dict(session)
-        voice_sessions.delete_one({"_id": session_id})
-        
-        if session_copy.get("proxy"):
-            import asyncio
-            asyncio.ensure_future(_send_proxy_call_summary(session_id, session_copy))
-            
-        owner = session_copy.get("owner_name", "the owner")
-        farewell = (
-            f"Thank you. I'll pass this along to {owner}. Goodbye."
-            if session_copy.get("proxy")
-            else "Understood. Execute the plan. No excuses. Goodbye."
-        )
-        farewell_audio = _synthesize_for_turn(farewell, session_copy)
-        if farewell_audio:
-            cache_key = f"{session_id}_farewell"
-            _cache_audio(cache_key, farewell_audio)
-            from chanakya.config import WEBHOOK_URL
-            base = (WEBHOOK_URL or "").rstrip("/")
-            audio_url = f"{base}/twilio/audio/turn/{session_id}?farewell=1"
-        else:
-            audio_url = None
-        twiml = _build_gather_twiml(session_id, farewell, is_final=True, audio_url=audio_url, session=session_copy)
-        return Response(content=twiml, media_type="application/xml")
-
-    session["history"].append({"role": "user", "content": user_speech})
-
-    try:
-        reply = await _get_chanakya_voice_reply(session)
-        if not reply:
-            reply = "Continue. What else?"
-    except Exception as exc:
-        logger.error("Voice reply failed for session %s: %s", session_id, exc, exc_info=True)
-        reply = "I encountered an issue. Reflect on what you said and act accordingly."
-
-    reply = _clean_for_speech(reply)
-    session["history"].append({"role": "assistant", "content": reply})
-
-    if len(session["history"]) > 10:
-        session["history"] = session["history"][-10:]
-
-    # Update rolling conversation context (fire-and-forget)
-    try:
-        from chanakya.agent.context_assembler import update_conversation_context
-        from chanakya.db.mongo import users as users_col
-        from bson import ObjectId
-        import asyncio
-
-        user_id = session.get("user_id", "")
-        if user_id:
-            user_doc = users_col.find_one({"_id": ObjectId(user_id)})
-            if user_doc:
-                asyncio.ensure_future(update_conversation_context(
-                    user_doc, role="user", content=user_speech, channel="call"
-                ))
-                asyncio.ensure_future(update_conversation_context(
-                    user_doc, role="assistant", content=reply, channel="call"
-                ))
-    except Exception as exc:
-        logger.warning("Failed to schedule context update for session %s: %s", session_id, exc)
-
-    log_input("CALL", session.get("user_id"), user_speech, extra={"session_id": session_id, "confidence": Confidence})
-    log_output("CALL", session.get("user_id"), reply, extra={"session_id": session_id})
-
-    # Use turn index in cache key to avoid collision on Twilio retries
-    turn_index = len(session["history"])
-    turn_cache_key = f"{session_id}_turn_{turn_index}"
-
-    # Synthesize reply via ElevenLabs
-    turn_audio = _synthesize_for_turn(reply, session)
-    if turn_audio:
-        _cache_audio(turn_cache_key, turn_audio)
-        from chanakya.config import WEBHOOK_URL
-        base = (WEBHOOK_URL or "").rstrip("/")
-        audio_url = f"{base}/twilio/audio/turn/{session_id}?t={turn_index}"
-    else:
-        audio_url = None
-        logger.warning("ElevenLabs synthesis failed for turn in session %s", session_id)
-
-    # Update session in DB
-    voice_sessions.update_one(
-        {"_id": session_id},
-        {"$set": {"history": session["history"]}}
-    )
-
-    twiml = _build_gather_twiml(session_id, reply, audio_url=audio_url, session=session)
-    return Response(content=twiml, media_type="application/xml")
 
 
 async def _get_chanakya_voice_reply(session: dict) -> str:

@@ -191,10 +191,14 @@ async def _invoke_council_specialist(state: DarbarState, user: dict) -> DarbarSt
 
     # Build messages
     scrubbed_input = scrub_context(state.raw_input, user["_id"])
-    messages: list = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=scrubbed_input),
-    ]
+    if state.media_url:
+        user_msg = HumanMessage(content=[
+            {"type": "text", "text": scrubbed_input or "Here is the image."},
+            {"type": "image_url", "image_url": {"url": state.media_url, "detail": "high"}},
+        ])
+    else:
+        user_msg = HumanMessage(content=scrubbed_input)
+    messages: list = [SystemMessage(content=system_prompt), user_msg]
 
     # LLM with scoped tools
     llm = ChatOpenAI(

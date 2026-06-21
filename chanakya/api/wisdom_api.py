@@ -46,6 +46,7 @@ class WisdomUpdate(BaseModel):
 
 
 class WisdomEntry(BaseModel):
+    id: Optional[str] = None  # stable UUID — use this for addressing in RN client
     index: int
     category: str
     text: str
@@ -75,6 +76,7 @@ def _entry_to_response(entry: dict, index: int) -> WisdomEntry:
     """Convert a raw DB mindset entry to the API response model."""
     added_at = entry.get("added_at")
     return WisdomEntry(
+        id=entry.get("_id"),
         index=index,
         category=entry.get("category", "note"),
         text=entry.get("text", ""),
@@ -226,3 +228,60 @@ async def toggle_wisdom(index: int, active: bool = True):
 
     entry = get_mindset_entry_by_index(user_id, index)
     return _entry_to_response(entry, index)
+
+
+# ── Stable-ID endpoints (use these from the RN client) ───────────────────────
+
+def _find_index_by_id(entries: list, entry_id: str) -> int:
+    """Find the index of an entry by its stable _id. Returns -1 if not found."""
+    for i, e in enumerate(entries):
+        if e.get("_id") == entry_id:
+            return i
+    return -1
+
+
+@router.delete("/by-id/{entry_id}", status_code=204)
+async def delete_wisdom_by_id(entry_id: str):
+    """Delete a wisdom entry by its stable ID (preferred over index-based delete)."""
+    from chanakya.db.mongo import remove_mindset_entry, get_mindset_entries
+
+    user_id = _get_active_user_id()
+    entries = get_mindset_entries(user_id)
+    idx = _find_index_by_id(entries, entry_id)
+    if idx == -1:
+        raise HTTPException(status_code=404, detail=f"No entry with id {entry_id}")
+    from chanakya.db.mongo import remove_mindset_entry
+    remove_mindset_entry(user_id, idx)
+
+
+@router.patch("/by-id/{entry_id}/toggle", response_model=WisdomEntry)
+async def toggle_wisdom_by_id(entry_id: str, active: bool = True):
+    """Toggle a wisdom entry by its stable ID."""
+    from chanakya.db.mongo import toggle_mindset_entry, get_mindset_entries
+
+    user_id = _get_active_user_id()
+    entries = get_mindset_entries(user_id)
+    idx = _find_index_by_id(entries, entry_id)
+    if idx == -1:
+        raise HTTPException(status_code=404, detail=f"No entry with id {entry_id}")
+    toggle_mindset_entry(user_id, idx, active)
+    updated = get_mindset_entries(user_id)
+    return _entry_to_response(updated[idx], idx)
+
+
+@router.put("/by-id/{entry_id}", response_model=WisdomEntry)
+async def update_wisdom_by_id(entry_id: str, body: WisdomUpdate):
+    """Update a wisdom entry by its stable ID."""
+    from chanakya.db.mongo import update_mindset_entry, get_mindset_entries
+
+    user_id = _get_active_user_id()
+    entries = get_mindset_entries(user_id)
+    idx = _find_index_by_id(entries, entry_id)
+    if idx == -1:
+        raise HTTPException(status_code=404, detail=f"No entry with id {entry_id}")
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update_mindset_entry(user_id, idx, updates)
+    updated = get_mindset_entries(user_id)
+    return _entry_to_response(updated[idx], idx)

@@ -11,7 +11,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Form, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from telegram import Update
@@ -25,6 +25,8 @@ from chanakya.darbar.background_jobs import start_darbar_jobs, stop_darbar_jobs
 from chanakya.api.test_endpoints import router as test_router
 from chanakya.api.wisdom_api import router as wisdom_router
 from chanakya.api.goals_api import router as goals_router
+from chanakya.api.dashboard_api import router as dashboard_router
+from chanakya.api.google_api import router as google_router
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +151,8 @@ def create_fastapi_app() -> FastAPI:
     app.include_router(test_router)
     app.include_router(wisdom_router)
     app.include_router(goals_router)
+    app.include_router(dashboard_router)
+    app.include_router(google_router)
 
     # Static UI
     static_path = os.path.join(os.path.dirname(__file__), "static")
@@ -191,17 +195,50 @@ def create_fastapi_app() -> FastAPI:
         """Handle chat from the web dashboard."""
         from chanakya.bot.telegram_bot import generic_process_message
         from chanakya.db.mongo import users
-        
+
         data = await request.json()
         text = data.get("message")
-        
-        # Get the primary user (assumed to be you)
+
         user = users.find_one({"active": True})
         if not user:
             return {"response": "No active user found in Dharma database."}
-            
-        # Process through the universal agent engine
+
         response_text = await generic_process_message(user, text, channel="WEB")
+        return {"response": response_text}
+
+    @app.get("/chat/history")
+    async def chat_history(limit: int = 50):
+        """Return recent chat messages for the web UI to restore on page load."""
+        from chanakya.db.mongo import users, get_recent_messages
+        user = users.find_one({"active": True})
+        if not user:
+            return []
+        msgs = get_recent_messages(user["_id"], limit=limit)
+        return msgs
+
+    @app.post("/chat/image")
+    async def web_chat_image(
+        message: str = Form(""),
+        file: UploadFile = None,
+    ):
+        """Handle image upload from web dashboard — converts to data URI and passes to vision agent."""
+        from chanakya.bot.telegram_bot import generic_process_message
+        from chanakya.db.mongo import users
+        import base64
+
+        user = users.find_one({"active": True})
+        if not user:
+            return {"response": "No active user found in Dharma database."}
+
+        media_url = None
+        if file is not None:
+            raw = await file.read()
+            mime = file.content_type or "image/jpeg"
+            b64 = base64.b64encode(raw).decode()
+            media_url = f"data:{mime};base64,{b64}"
+
+        text = message or "[Image submitted for review]"
+        response_text = await generic_process_message(user, text, channel="WEB", media_url=media_url)
         return {"response": response_text}
 
     @app.post("/")

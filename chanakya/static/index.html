@@ -1,312 +1,1409 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KautilyaOS | Dharma Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-deep: #0a0b10;
-            --bg-surface: rgba(20, 22, 32, 0.7);
-            --accent-gold: #d4af37;
-            --accent-bronze: #cd7f32;
-            --text-main: #e0e0e0;
-            --text-muted: #a0a0a0;
-            --glass-border: rgba(255, 255, 255, 0.1);
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>AIChanakya | Dharma OS</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #0d0d0d;
+  --surface:   #161616;
+  --surface2:  #1e1e1e;
+  --surface3:  #262626;
+  --border:    rgba(255,255,255,0.1);
+  --orange:    #ff6b2b;
+  --orange2:   #ff9a5c;
+  --gold:      #ffd700;
+  --gold2:     #ffec6e;
+  --green:     #00e676;
+  --green2:    #69f0ae;
+  --blue:      #40c4ff;
+  --blue2:     #80d8ff;
+  --red:       #ff5252;
+  --purple:    #e040fb;
+  --text:      #f5f5f5;
+  --text2:     #c0c0c0;
+  --muted:     #757575;
+  --radius:    12px;
+  --radius-lg: 18px;
+}
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; }
+body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; height: 100dvh; overflow: hidden; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 2px; }
 
-        body {
-            background: var(--bg-deep);
-            color: var(--text-main);
-            font-family: 'Outfit', sans-serif;
-            height: 100vh;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            background-image: 
-                radial-gradient(circle at 10% 20%, rgba(212, 175, 55, 0.05) 0%, transparent 40%),
-                radial-gradient(circle at 90% 80%, rgba(205, 127, 50, 0.05) 0%, transparent 40%);
-        }
+/* ── LAYOUT ── */
+#app { display: flex; height: 100dvh; overflow: hidden; }
 
-        /* Header & Clock */
-        header {
-            padding: 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid var(--glass-border);
-            backdrop-filter: blur(10px);
-        }
+/* ── SIDEBAR (desktop) ── */
+#sidebar {
+  width: 220px; flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  transition: width 0.25s ease;
+}
+.brand {
+  padding: 20px 18px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.brand-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.4rem; font-weight: 900;
+  background: linear-gradient(135deg, var(--orange), var(--gold));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  letter-spacing: 0.5px;
+}
+.brand-sub {
+  font-size: 0.7rem; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 2.5px;
+  margin-top: 3px;
+}
+nav { flex: 1; padding: 10px 0; overflow-y: auto; }
+.nav-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 18px; cursor: pointer;
+  color: var(--text2); font-size: 0.88rem; font-weight: 500;
+  letter-spacing: 0.2px; transition: all 0.15s;
+  border-left: 3px solid transparent; user-select: none;
+}
+.nav-item:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.nav-item.active {
+  color: var(--orange); border-left-color: var(--orange);
+  background: rgba(255,107,43,0.1);
+  font-weight: 700;
+}
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+.sidebar-footer {
+  padding: 14px 18px; border-top: 1px solid var(--border);
+}
+.status-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.75rem; color: var(--muted); margin-bottom: 5px;
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); flex-shrink: 0; box-shadow: 0 0 6px var(--red); }
+.dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+#mode-badge {
+  display: inline-block; padding: 4px 12px; border-radius: 20px;
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 1.5px;
+  background: linear-gradient(135deg, rgba(255,107,43,0.2), rgba(255,215,0,0.2));
+  color: var(--gold); border: 1px solid rgba(255,215,0,0.35);
+  margin-top: 6px; text-transform: uppercase;
+}
 
-        .brand {
-            font-family: 'Playfair Display', serif;
-            font-size: 1.5rem;
-            letter-spacing: 2px;
-            color: var(--accent-gold);
-            text-transform: uppercase;
-        }
+/* ── MAIN ── */
+#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 
-        #clock {
-            font-weight: 300;
-            font-size: 1.2rem;
-            color: var(--text-muted);
-            letter-spacing: 1px;
-        }
+/* ── TOPBAR ── */
+#topbar {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--surface);
+  flex-shrink: 0;
+}
+#hamburger {
+  display: none; background: none; border: none; color: var(--text);
+  cursor: pointer; padding: 4px; border-radius: 6px;
+  margin-right: 10px;
+}
+.page-title { font-size: 1.1rem; font-weight: 800; color: var(--text); }
+#clock { font-size: 0.85rem; color: var(--orange); font-weight: 700; font-variant-numeric: tabular-nums; }
 
-        /* Chat Container */
-        main {
-            flex: 1;
-            padding: 2rem;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-            scrollbar-width: thin;
-            scrollbar-color: var(--accent-bronze) transparent;
-        }
+/* ── PANELS ── */
+.panel { display: none; flex: 1; overflow-y: auto; padding: 20px; flex-direction: column; gap: 18px; }
+.panel.active { display: flex; }
 
-        .message {
-            max-width: 80%;
-            padding: 1.2rem;
-            border-radius: 1.5rem;
-            font-size: 1rem;
-            line-height: 1.6;
-            animation: fadeIn 0.4s ease-out;
-        }
+/* ── CARDS ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 20px;
+}
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
+}
+.card-title {
+  font-size: 0.8rem; font-weight: 800; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 1.5px;
+}
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+/* ── FORMS ── */
+.field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; }
+.field label { font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+input[type=text], input[type=tel], textarea, select {
+  background: var(--surface2); border: 1.5px solid var(--border);
+  color: var(--text); border-radius: 10px; padding: 11px 14px;
+  font-family: inherit; font-size: 0.95rem; width: 100%; outline: none;
+  transition: border-color 0.15s; -webkit-appearance: none;
+}
+input[type=text]:focus, input[type=tel]:focus, textarea:focus, select:focus { border-color: var(--orange); }
+textarea { resize: vertical; min-height: 80px; }
+select { cursor: pointer; }
 
-        .user-message {
-            align-self: flex-end;
-            background: var(--accent-bronze);
-            color: white;
-            border-bottom-right-radius: 0.2rem;
-        }
+/* ── BUTTONS ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px 20px; border-radius: 10px; border: none;
+  font-family: inherit; font-size: 0.9rem; font-weight: 700;
+  cursor: pointer; transition: all 0.15s; letter-spacing: 0.3px;
+  min-height: 44px; white-space: nowrap;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--orange), #ff9a2b);
+  color: #fff; box-shadow: 0 4px 16px rgba(255,107,43,0.4);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,107,43,0.55); }
+.btn-gold {
+  background: linear-gradient(135deg, #b8860b, var(--gold));
+  color: #0d0d0d; box-shadow: 0 4px 16px rgba(255,215,0,0.3);
+}
+.btn-gold:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,215,0,0.45); }
+.btn-ghost {
+  background: var(--surface2); color: var(--text2);
+  border: 1.5px solid var(--border);
+}
+.btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,0.25); background: var(--surface3); }
+.btn-danger {
+  background: rgba(255,82,82,0.15); color: var(--red);
+  border: 1.5px solid rgba(255,82,82,0.35);
+}
+.btn-danger:hover { background: rgba(255,82,82,0.28); transform: translateY(-1px); }
+.btn-green {
+  background: rgba(0,230,118,0.15); color: var(--green);
+  border: 1.5px solid rgba(0,230,118,0.35);
+}
+.btn-green:hover { background: rgba(0,230,118,0.28); }
+.btn-sm { padding: 8px 14px; font-size: 0.8rem; min-height: 36px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+.btn-full { width: 100%; }
 
-        .chanakya-message {
-            align-self: flex-start;
-            background: var(--bg-surface);
-            border: 1px solid var(--glass-border);
-            border-bottom-left-radius: 0.2rem;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            backdrop-filter: blur(5px);
-        }
+/* ── GRIDS ── */
+.row { display: flex; gap: 12px; align-items: flex-start; }
+.row > .field { flex: 1; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
 
-        .chanakya-message strong {
-            color: var(--accent-gold);
-            display: block;
-            margin-bottom: 0.5rem;
-            font-family: 'Playfair Display', serif;
-            text-transform: uppercase;
-            font-size: 0.8rem;
-            letter-spacing: 1px;
-        }
+/* ── BADGES ── */
+.badge {
+  display: inline-block; padding: 3px 9px; border-radius: 20px;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.5px;
+}
+.badge-orange { background: rgba(255,107,43,0.2); color: var(--orange2); }
+.badge-gold   { background: rgba(255,215,0,0.15); color: var(--gold); }
+.badge-green  { background: rgba(0,230,118,0.15); color: var(--green); }
+.badge-red    { background: rgba(255,82,82,0.15);  color: var(--red); }
+.badge-blue   { background: rgba(64,196,255,0.15); color: var(--blue); }
+.badge-purple { background: rgba(224,64,251,0.15); color: var(--purple); }
+.badge-gray   { background: rgba(255,255,255,0.08); color: var(--muted); }
 
-        /* Input Area */
-        footer {
-            padding: 2rem;
-            background: transparent;
-        }
+/* ── LIST ITEMS ── */
+.list-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 16px; border-radius: 12px;
+  background: var(--surface2); border: 1.5px solid var(--border);
+  margin-bottom: 8px; gap: 10px;
+}
+.list-item:last-child { margin-bottom: 0; }
+.list-item-left { flex: 1; min-width: 0; }
+.list-item-title { font-size: 0.95rem; font-weight: 600; }
+.list-item-sub { font-size: 0.8rem; color: var(--muted); margin-top: 3px; }
+.list-item-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.icon-btn {
+  background: var(--surface3); border: none; color: var(--muted);
+  cursor: pointer; padding: 8px; border-radius: 8px;
+  display: flex; align-items: center; transition: all 0.15s;
+  min-width: 36px; min-height: 36px; justify-content: center;
+}
+.icon-btn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
+.icon-btn.del:hover { color: var(--red); background: rgba(255,82,82,0.15); }
 
-        .input-container {
-            max-width: 800px;
-            margin: 0 auto;
-            position: relative;
-            background: var(--bg-surface);
-            border: 1px solid var(--glass-border);
-            border-radius: 3rem;
-            padding: 0.5rem;
-            display: flex;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 15px 45px rgba(0,0,0,0.5);
-        }
+/* ── CHAT ── */
+#tab-chat { padding: 0; gap: 0; }
+#chat-messages {
+  flex: 1; overflow-y: auto; padding: 20px;
+  display: flex; flex-direction: column; gap: 14px; min-height: 0;
+}
+.msg {
+  max-width: 82%; padding: 13px 17px; border-radius: 16px;
+  font-size: 0.95rem; line-height: 1.6;
+  animation: fadeUp 0.2s ease;
+}
+@keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+.msg-user {
+  align-self: flex-end; border-bottom-right-radius: 4px;
+  background: linear-gradient(135deg, var(--orange), #ff9a2b);
+  color: #fff; font-weight: 500;
+}
+.msg-bot {
+  align-self: flex-start; border-bottom-left-radius: 4px;
+  background: var(--surface2); border: 1.5px solid var(--border);
+}
+.msg-bot-label {
+  font-size: 0.72rem; font-weight: 800; color: var(--orange);
+  text-transform: uppercase; letter-spacing: 1.5px; display: block; margin-bottom: 5px;
+}
+.msg-thinking { color: var(--muted); font-style: italic; font-size: 0.88rem; }
+#chat-input-row {
+  display: flex; gap: 10px; padding: 16px 20px;
+  border-top: 1px solid var(--border); background: var(--surface);
+  flex-shrink: 0; flex-direction: column;
+}
+#chat-input-main { display: flex; gap: 10px; align-items: flex-end; }
+#chat-input {
+  flex: 1; background: var(--surface2); border: 1.5px solid var(--border);
+  color: var(--text); border-radius: 12px; padding: 12px 16px;
+  font-family: inherit; font-size: 0.95rem; outline: none;
+  transition: border-color 0.15s; min-height: 48px;
+}
+#chat-input:focus { border-color: var(--orange); }
+#image-preview-row {
+  display: none; align-items: center; gap: 10px;
+  background: var(--surface2); border: 1.5px solid rgba(255,107,43,0.4);
+  border-radius: 10px; padding: 8px 12px;
+}
+#image-preview-row img { height: 48px; width: 48px; object-fit: cover; border-radius: 6px; }
+#image-preview-name { font-size: .82rem; color: var(--orange); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#image-clear { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1.1rem; padding: 2px 6px; }
+#image-clear:hover { color: var(--red); }
 
-        input {
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: white;
-            padding: 1rem 1.5rem;
-            font-size: 1.1rem;
-            font-family: inherit;
-            outline: none;
-        }
+/* ── SCHEDULE CALENDAR ── */
+#schedule-calendar { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.day-col { flex: 1; min-width: 120px; }
+.day-header {
+  font-size: 0.72rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 1.5px; color: var(--orange); margin-bottom: 10px;
+  padding-bottom: 7px; border-bottom: 2px solid rgba(255,107,43,0.35);
+}
+.cp-block {
+  background: var(--surface2); border: 1.5px solid var(--border);
+  border-radius: 10px; padding: 10px 11px; margin-bottom: 7px;
+  cursor: pointer; transition: all 0.15s; border-left: 4px solid var(--border);
+}
+.cp-block:hover { border-color: rgba(255,107,43,0.5); background: var(--surface3); transform: translateY(-1px); }
+.cp-block.priority-CRITICAL { border-left-color: var(--red); }
+.cp-block.priority-HIGH     { border-left-color: var(--gold); }
+.cp-block.priority-MEDIUM   { border-left-color: var(--blue); }
+.cp-block.priority-LOW      { border-left-color: var(--muted); }
+.cp-block.inactive          { opacity: 0.35; }
+.cp-time { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 600; }
+.cp-name { font-size: 0.85rem; font-weight: 700; margin-top: 2px; line-height: 1.3; }
+.cp-meta { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
 
-        button {
-            background: var(--accent-gold);
-            border: none;
-            color: black;
-            padding: 0 2rem;
-            border-radius: 2rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            font-size: 0.8rem;
-        }
+/* ── STAT CARDS ── */
+.stat-card {
+  background: var(--surface2); border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg); padding: 18px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.stat-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
+.stat-value { font-size: 2rem; font-weight: 900; line-height: 1; }
+.stat-orange { color: var(--orange); }
+.stat-gold   { color: var(--gold); }
+.stat-green  { color: var(--green); }
+.stat-red    { color: var(--red); }
 
-        button:hover {
-            transform: scale(1.05);
-            background: white;
-        }
+/* ── LOGS ── */
+.log-item {
+  padding: 14px 16px; border-radius: 12px;
+  background: var(--surface2); border: 1.5px solid var(--border); margin-bottom: 9px;
+}
+.log-meta { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.log-msg { font-size: 0.88rem; color: var(--text); margin-bottom: 4px; line-height: 1.4; }
+.log-response { font-size: 0.82rem; color: var(--text2); font-style: italic; line-height: 1.4; }
+.log-time { font-size: 0.72rem; color: var(--muted); }
 
-        button:disabled {
-            background: var(--text-muted);
-            cursor: not-allowed;
-        }
+/* ── TOAST ── */
+#toast {
+  position: fixed; bottom: 24px; right: 20px;
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 12px; padding: 13px 20px;
+  font-size: 0.9rem; font-weight: 600; color: var(--text);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  z-index: 9999; transform: translateY(80px); opacity: 0;
+  transition: all 0.3s cubic-bezier(.34,1.56,.64,1);
+  pointer-events: none; max-width: 320px;
+}
+#toast.show { transform: translateY(0); opacity: 1; }
+#toast.ok  { border-color: var(--green); color: var(--green2); }
+#toast.err { border-color: var(--red); color: var(--red); }
 
-        /* Markdown-ish formatting */
-        .message p { margin-bottom: 0.8rem; }
-        .message b { color: var(--accent-gold); }
-        
-        .status-bar {
-            display: flex;
-            gap: 1.5rem;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
+/* ── MODAL ── */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.72);
+  z-index: 100; display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px); padding: 16px;
+}
+.modal {
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 20px; padding: 24px;
+  width: 100%; max-width: 460px;
+  max-height: 90dvh; overflow-y: auto;
+}
+.modal-title {
+  font-size: 1.05rem; font-weight: 800; margin-bottom: 18px;
+  background: linear-gradient(135deg, var(--orange), var(--gold));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
 
-        .status-item {
-            display: flex;
-            align-items: center;
-            color: var(--text-muted);
-        }
+/* ── MOBILE BOTTOM NAV ── */
+#bottom-nav {
+  display: none;
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--surface); border-top: 1.5px solid var(--border);
+  z-index: 50; padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.bnav-inner { display: flex; overflow-x: auto; gap: 0; -ms-overflow-style: none; scrollbar-width: none; }
+.bnav-inner::-webkit-scrollbar { display: none; }
+.bnav-item {
+  flex: 1; min-width: 60px; display: flex; flex-direction: column;
+  align-items: center; gap: 4px; padding: 10px 6px 8px;
+  cursor: pointer; color: var(--muted); font-size: 0.62rem;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  border-top: 2px solid transparent; transition: all 0.15s; user-select: none;
+}
+.bnav-item svg { width: 20px; height: 20px; }
+.bnav-item.active { color: var(--orange); border-top-color: var(--orange); }
 
-        .status-dot {
-            width: 6px;
-            height: 6px;
-            background: #ff5252;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 6px;
-            box-shadow: 0 0 8px #ff5252;
-            transition: all 0.3s ease;
-        }
+/* ── SIDEBAR OVERLAY (mobile) ── */
+#sidebar-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6); z-index: 40;
+}
 
-        .status-dot.online {
-            background: #4caf50;
-            box-shadow: 0 0 8px #4caf50;
-        }
+/* ── RESPONSIVE ── */
+@media (max-width: 768px) {
+  html { font-size: 15px; }
 
-    </style>
+  #sidebar {
+    position: fixed; left: -220px; top: 0; bottom: 0; z-index: 45;
+    transition: left 0.25s ease; box-shadow: 4px 0 24px rgba(0,0,0,0.5);
+  }
+  #sidebar.open { left: 0; }
+  #sidebar-overlay.open { display: block; }
+  #hamburger { display: flex; }
+  #bottom-nav { display: block; }
+  #main { padding-bottom: 64px; }
+  .panel { padding: 14px; }
+
+  .grid2 { grid-template-columns: 1fr; }
+  .grid3 { grid-template-columns: 1fr 1fr; }
+  .msg { max-width: 92%; }
+  #chat-input-row { padding: 12px 14px; }
+  .modal { padding: 20px; }
+  .brand-sub { display: none; }
+  .stat-value { font-size: 1.6rem; }
+}
+
+@media (max-width: 420px) {
+  .grid3 { grid-template-columns: 1fr; }
+  .row { flex-direction: column; }
+}
+
+/* ── FILTER CHIPS ── */
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.chip {
+  padding: 7px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700;
+  cursor: pointer; border: 1.5px solid var(--border); color: var(--muted);
+  background: var(--surface2); transition: all 0.15s; user-select: none;
+}
+.chip:hover { color: var(--text); border-color: rgba(255,255,255,0.25); }
+.chip.active { background: rgba(255,107,43,0.15); color: var(--orange); border-color: rgba(255,107,43,0.45); }
+
+/* ── SECTION DIVIDER ── */
+.section-label {
+  font-size: 0.72rem; font-weight: 800; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 1.5px;
+  margin-bottom: 10px; margin-top: 4px;
+}
+
+/* ── EMPTY STATE ── */
+.empty {
+  text-align: center; padding: 32px 16px; color: var(--muted);
+  font-size: 0.9rem; line-height: 1.6;
+}
+.empty-icon { font-size: 2rem; display: block; margin-bottom: 8px; }
+</style>
 </head>
 <body>
+<div id="app">
 
-    <header>
+<!-- SIDEBAR OVERLAY (mobile tap-to-close) -->
+<div id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<!-- SIDEBAR -->
+<div id="sidebar">
+  <div class="brand">
+    <div class="brand-name">⚔ Chanakya</div>
+    <div class="brand-sub">Dharma OS v2</div>
+  </div>
+  <nav>
+    <div class="nav-item active" data-tab="chat" onclick="switchTab('chat');closeSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span>Guru Chat</span>
+    </div>
+    <div class="nav-item" data-tab="schedule" onclick="switchTab('schedule');closeSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span>Schedule</span>
+    </div>
+    <div class="nav-item" data-tab="actions" onclick="switchTab('actions');closeSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.1a16 16 0 0 0 6 6l.9-.9a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7a2 2 0 0 1 1.72 2.02z"/></svg>
+      <span>Actions</span>
+    </div>
+    <div class="nav-item" data-tab="contacts" onclick="switchTab('contacts');closeSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Contacts</span>
+    </div>
+    <div class="nav-item" data-tab="rules" onclick="switchTab('rules');closeSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      <span>Rules</span>
+    </div>
+    <div class="nav-item" data-tab="wisdom" onclick="switchTab('wisdom');closeSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      <span>Wisdom</span>
+    </div>
+    <div class="nav-item" data-tab="logs" onclick="switchTab('logs');closeSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <span>Logs</span>
+    </div>
+    <div class="nav-item" data-tab="profile" onclick="switchTab('profile');closeSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+      <span>Profile</span>
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="status-row"><span id="tg-dot" class="dot"></span><span>Telegram</span></div>
+    <div class="status-row"><span id="tw-dot" class="dot"></span><span>Twilio</span></div>
+    <div id="mode-badge">NORMAL</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <!-- TOPBAR -->
+  <div id="topbar">
+    <div style="display:flex;align-items:center">
+      <button id="hamburger" onclick="openSidebar()">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="page-title" id="page-title">Guru Chat</div>
+    </div>
+    <div id="clock">00:00:00</div>
+  </div>
+
+  <!-- ===== CHAT ===== -->
+  <div id="tab-chat" class="panel active">
+    <div id="chat-messages"></div>
+    <div id="chat-input-row">
+      <div id="image-preview-row">
+        <img id="image-preview-thumb" src="" alt="">
+        <span id="image-preview-name"></span>
+        <button id="image-clear" onclick="clearImage()" title="Remove image">✕</button>
+      </div>
+      <div id="chat-input-main">
+        <label class="btn btn-ghost" style="padding:11px 14px;cursor:pointer;min-height:44px" title="Attach image">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <input id="image-file" type="file" accept="image/*" style="display:none" onchange="onImageSelected(event)">
+        </label>
+        <input id="chat-input" type="text" placeholder="Speak your dharma..." autocomplete="off">
+        <button class="btn btn-primary" id="chat-send" onclick="sendChat()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SCHEDULE ===== -->
+  <div id="tab-schedule" class="panel">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Weekly Schedule</span>
+        <button class="btn btn-primary btn-sm" onclick="openAddCheckpoint()">+ Add</button>
+      </div>
+      <div id="schedule-calendar"></div>
+    </div>
+  </div>
+
+  <!-- ===== ACTIONS ===== -->
+  <div id="tab-actions" class="panel">
+    <div class="card">
+      <div class="card-header"><span class="card-title">📞 Call Yourself</span></div>
+      <div class="field">
+        <label>Chanakya's opening line</label>
+        <textarea id="call-self-text" rows="3">Chanakya here. Dharma check. What have you accomplished in the last hour?</textarea>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="callSelf()">📞 Call Me Now</button>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">📞 Call a Contact</span></div>
+      <div class="field">
+        <label>Contact</label>
+        <select id="call-contact-name"><option value="">— select contact —</option></select>
+      </div>
+      <div class="field">
+        <label>Topic</label>
+        <input type="text" id="call-contact-topic" placeholder="e.g. follow up on the project deadline">
+      </div>
+      <button class="btn btn-gold btn-full" onclick="callContact()">📞 Place Call</button>
+    </div>
+  </div>
+
+  <!-- ===== CONTACTS ===== -->
+  <div id="tab-contacts" class="panel">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Contacts</span>
+        <button class="btn btn-primary btn-sm" onclick="openAddContact()">+ Add</button>
+      </div>
+      <div id="contacts-list"></div>
+    </div>
+  </div>
+
+  <!-- ===== RULES ===== -->
+  <div id="tab-rules" class="panel">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Personal Rules</span>
+        <button class="btn btn-primary btn-sm" onclick="openAddRule()">+ Add Rule</button>
+      </div>
+      <p style="font-size:.85rem;color:var(--text2);margin-bottom:14px;line-height:1.5">
+        These rules are injected into <strong style="color:var(--orange)">every</strong> Chanakya response. He honours them without exception.
+      </p>
+      <div id="rules-list"></div>
+    </div>
+  </div>
+
+  <!-- ===== WISDOM ===== -->
+  <div id="tab-wisdom" class="panel">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Living Wisdom</span>
+        <button class="btn btn-primary btn-sm" onclick="openAddWisdom()">+ Add</button>
+      </div>
+      <p style="font-size:.85rem;color:var(--text2);margin-bottom:14px;line-height:1.5">
+        Quotes, goals, traits, rules, references. Chanakya checks these before every single response.
+      </p>
+      <div class="chips" id="wisdom-chips">
+        <div class="chip active" onclick="filterWisdom('')">All</div>
+        <div class="chip" onclick="filterWisdom('rule')">Rules</div>
+        <div class="chip" onclick="filterWisdom('quote')">Quotes</div>
+        <div class="chip" onclick="filterWisdom('goal')">Goals</div>
+        <div class="chip" onclick="filterWisdom('trait')">Traits</div>
+        <div class="chip" onclick="filterWisdom('reference')">References</div>
+        <div class="chip" onclick="filterWisdom('note')">Notes</div>
+      </div>
+      <div id="wisdom-list"></div>
+    </div>
+  </div>
+
+  <!-- ===== LOGS ===== -->
+  <div id="tab-logs" class="panel">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Interaction Logs</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="log-filter" style="width:140px" onchange="loadLogs()">
+            <option value="">All types</option>
+            <option value="SCHEDULED">Scheduled</option>
+            <option value="MANUAL">Manual</option>
+            <option value="REACTIVE">Reactive</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="loadLogs()">↺</button>
+        </div>
+      </div>
+      <div id="logs-list"></div>
+    </div>
+  </div>
+
+  <!-- ===== PROFILE ===== -->
+  <div id="tab-profile" class="panel">
+    <div class="grid3" id="profile-stats-grid"></div>
+    <div class="grid2">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Settings</span></div>
+        <div id="profile-fields"></div>
+        <button class="btn btn-primary btn-full" onclick="saveProfile()">Save Changes</button>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">⚔ Mode Control</span></div>
+        <p style="font-size:.88rem;color:var(--text2);margin-bottom:16px;line-height:1.55">
+          WAR MODE activates for 24 hours — maximum accountability, zero tolerance for excuses.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <button class="btn btn-danger btn-full" onclick="setWarMode(true)">⚔ Activate War Mode</button>
+          <button class="btn btn-ghost btn-full" onclick="setWarMode(false)">Deactivate</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">🔗 Integrations</span></div>
+      <div id="google-connect-area" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
         <div>
-            <div class="brand">Kautilya<span style="color: white;">OS</span></div>
-            <div class="status-bar">
-                <div class="status-item">
-                    <span id="tg-dot" class="status-dot"></span> Telegram Link
-                </div>
-                <div class="status-item">
-                    <span id="tw-dot" class="status-dot"></span> Twilio Engine
-                </div>
-                <div class="status-item">
-                    <span id="guru-mode" style="color: var(--accent-gold); font-weight: 600;">NORMAL</span>
-                </div>
+          <div style="font-size:.95rem;font-weight:700;margin-bottom:4px">Google Calendar + Gmail</div>
+          <div style="font-size:.82rem;color:var(--muted)" id="google-status-text">Checking...</div>
+        </div>
+        <button id="google-connect-btn" class="btn btn-ghost" onclick="connectGoogle()" style="min-width:140px">
+          Connect Google
+        </button>
+      </div>
+    </div>
+  </div>
+</div><!-- /main -->
+
+<!-- BOTTOM NAV (mobile) -->
+<div id="bottom-nav">
+  <div class="bnav-inner">
+    <div class="bnav-item active" data-tab="chat" onclick="switchTab('chat')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat
+    </div>
+    <div class="bnav-item" data-tab="schedule" onclick="switchTab('schedule')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Schedule
+    </div>
+    <div class="bnav-item" data-tab="actions" onclick="switchTab('actions')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.1a16 16 0 0 0 6 6l.9-.9a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7a2 2 0 0 1 1.72 2.02z"/></svg>Call
+    </div>
+    <div class="bnav-item" data-tab="contacts" onclick="switchTab('contacts')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>People
+    </div>
+    <div class="bnav-item" data-tab="rules" onclick="switchTab('rules')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/></svg>Rules
+    </div>
+    <div class="bnav-item" data-tab="wisdom" onclick="switchTab('wisdom')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/></svg>Wisdom
+    </div>
+    <div class="bnav-item" data-tab="logs" onclick="switchTab('logs')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Logs
+    </div>
+    <div class="bnav-item" data-tab="profile" onclick="switchTab('profile')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>Profile
+    </div>
+  </div>
+</div>
+</div><!-- /app -->
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- MODAL -->
+<div id="modal-backdrop" class="modal-backdrop" style="display:none" onclick="closeModalBg(event)">
+  <div class="modal">
+    <div class="modal-title" id="modal-title"></div>
+    <div id="modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="hideModal()">Cancel</button>
+      <button class="btn btn-primary" id="modal-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── UTILS ───────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const PAGE_TITLES = {
+  chat:'Guru Chat', schedule:'Schedule', actions:'Actions',
+  contacts:'Contacts', rules:'Rules', wisdom:'Living Wisdom',
+  logs:'Logs', profile:'Profile'
+};
+
+function toast(msg, type='ok') {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'show ' + type;
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.className = '', 3000);
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({detail: r.statusText}));
+    throw new Error(err.detail || r.statusText);
+  }
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+function formatDt(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('en-IN', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+}
+
+function verdictBadge(v) {
+  if (!v) return '';
+  const cls = {SUCCESS:'green',FAILED:'red',EXCUSED:'blue',SKIPPED:'gray',ABANDONED:'gray',WAR_MODE_OVERRIDE:'purple'}[v] || 'gray';
+  return `<span class="badge badge-${cls}">${v}</span>`;
+}
+
+// ─── SIDEBAR MOBILE ────────────────────────────────
+function openSidebar() {
+  $('sidebar').classList.add('open');
+  $('sidebar-overlay').classList.add('open');
+}
+function closeSidebar() {
+  $('sidebar').classList.remove('open');
+  $('sidebar-overlay').classList.remove('open');
+}
+
+// ─── CLOCK + STATUS ────────────────────────────────
+setInterval(() => $('clock').textContent = new Date().toLocaleTimeString('en-IN'), 1000);
+
+async function refreshStatus() {
+  try {
+    const d = await api('GET', '/api/status');
+    $('tg-dot').className = 'dot' + (d.telegram.active ? ' on' : '');
+    $('tw-dot').className = 'dot' + (d.twilio.active ? ' on' : '');
+    const mode = d.guru.mode || 'NORMAL';
+    $('mode-badge').textContent = mode;
+    $('mode-badge').style.background = mode === 'WAR_MODE'
+      ? 'linear-gradient(135deg,rgba(255,82,82,0.25),rgba(255,82,82,0.1))'
+      : 'linear-gradient(135deg,rgba(255,107,43,0.2),rgba(255,215,0,0.2))';
+    $('mode-badge').style.color = mode === 'WAR_MODE' ? 'var(--red)' : 'var(--gold)';
+  } catch {}
+}
+refreshStatus();
+setInterval(refreshStatus, 30000);
+
+// ─── TABS ──────────────────────────────────────────
+const TAB_LOADERS = {
+  schedule: loadSchedule, contacts: loadContacts,
+  rules: loadRules, wisdom: () => loadWisdom(''),
+  logs: loadLogs, profile: loadProfile,
+  actions: loadContactsForActions,
+};
+let activeTab = 'chat';
+
+function switchTab(tab) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
+  document.querySelectorAll('.bnav-item').forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+  $('page-title').textContent = PAGE_TITLES[tab] || tab;
+  activeTab = tab;
+  if (TAB_LOADERS[tab]) TAB_LOADERS[tab]();
+}
+
+// ─── MODAL ─────────────────────────────────────────
+function showModal(title, bodyHtml, onConfirm) {
+  $('modal-title').textContent = title;
+  $('modal-body').innerHTML = bodyHtml;
+  $('modal-confirm').onclick = onConfirm;
+  $('modal-confirm').disabled = false;
+  $('modal-confirm').textContent = 'Confirm';
+  $('modal-backdrop').style.display = 'flex';
+  setTimeout(() => $('modal-body').querySelector('input,textarea,select')?.focus(), 100);
+}
+function hideModal() { $('modal-backdrop').style.display = 'none'; }
+function closeModalBg(e) { if (e.target === $('modal-backdrop')) hideModal(); }
+
+// ─── CHAT ──────────────────────────────────────────
+function addMsg(text, role) {
+  const box = $('chat-messages');
+  const d = document.createElement('div');
+  d.className = 'msg msg-' + role;
+  if (role === 'bot') {
+    const clean = text
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+      .replace(/_(.+?)_/g,'<em>$1</em>')
+      .replace(/•/g,'•')
+      .replace(/\n/g,'<br>');
+    d.innerHTML = `<span class="msg-bot-label">⚔ Chanakya</span>${clean}`;
+  } else {
+    d.textContent = text;
+  }
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+  return d;
+}
+
+let _pendingImage = null; // { file, previewUrl }
+
+function onImageSelected(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  _pendingImage = { file };
+  const reader = new FileReader();
+  reader.onload = e => {
+    _pendingImage.previewUrl = e.target.result;
+    $('image-preview-thumb').src = e.target.result;
+    $('image-preview-name').textContent = file.name;
+    $('image-preview-row').style.display = 'flex';
+  };
+  reader.readAsDataURL(file);
+  evt.target.value = ''; // allow re-selecting same file
+}
+
+function clearImage() {
+  _pendingImage = null;
+  $('image-preview-row').style.display = 'none';
+  $('image-preview-thumb').src = '';
+  $('image-preview-name').textContent = '';
+}
+
+async function sendChat() {
+  const inp = $('chat-input');
+  const text = inp.value.trim();
+  if (!text && !_pendingImage) return;
+  inp.value = '';
+
+  const displayText = text || '📷 Image';
+  if (_pendingImage) {
+    // Show image preview in chat
+    const box = $('chat-messages');
+    const d = document.createElement('div');
+    d.className = 'msg msg-user';
+    d.innerHTML = `${text ? `<div style="margin-bottom:6px">${text}</div>` : ''}<img src="${_pendingImage.previewUrl}" style="max-width:220px;max-height:180px;border-radius:8px;display:block">`;
+    box.appendChild(d);
+    box.scrollTop = box.scrollHeight;
+  } else {
+    addMsg(displayText, 'user');
+  }
+
+  const thinking = addMsg('Thinking...', 'bot');
+  thinking.classList.add('msg-thinking');
+  $('chat-send').disabled = true;
+
+  try {
+    let d;
+    if (_pendingImage) {
+      const form = new FormData();
+      form.append('file', _pendingImage.file);
+      if (text) form.append('message', text);
+      const r = await fetch('/chat/image', {method:'POST', body: form});
+      if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+      d = await r.json();
+    } else {
+      d = await api('POST', '/chat', {message: text});
+    }
+    thinking.remove();
+    addMsg(d.response, 'bot');
+  } catch(e) {
+    thinking.remove();
+    addMsg('System failure: ' + e.message, 'bot');
+  } finally {
+    clearImage();
+    $('chat-send').disabled = false;
+    inp.focus();
+  }
+}
+$('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+addMsg('Warrior, your dharma does not rest. Speak your intent and I shall judge its worth.', 'bot');
+
+// ─── SCHEDULE ──────────────────────────────────────
+const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+let scheduleData = [];
+
+async function loadSchedule() {
+  try {
+    scheduleData = await api('GET', '/api/dashboard/schedule');
+    renderScheduleCalendar();
+  } catch(e) { toast('Schedule load failed: ' + e.message, 'err'); }
+}
+
+function renderScheduleCalendar() {
+  const cal = $('schedule-calendar');
+  cal.innerHTML = '';
+  DAYS.forEach(day => {
+    const items = scheduleData.filter(cp => (cp.days||[]).includes(day));
+    const col = document.createElement('div');
+    col.className = 'day-col';
+    col.style.minWidth = '120px';
+    col.innerHTML = `<div class="day-header">${day.slice(0,3).toUpperCase()}</div>`;
+    if (!items.length) {
+      col.innerHTML += `<div style="font-size:.8rem;color:var(--muted);padding:4px">—</div>`;
+    }
+    items.forEach(cp => {
+      const b = document.createElement('div');
+      b.className = `cp-block priority-${cp.priority}${cp.active===false?' inactive':''}`;
+      b.style.position = 'relative';
+      b.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1;min-width:0" onclick="openEditCheckpoint(event,'${cp._id}')">
+            <div class="cp-time">${cp.time}</div>
+            <div class="cp-name">${cp.display_name||cp.activity||''}</div>
+            <div class="cp-meta">
+              <span class="badge badge-gray" style="font-size:.65rem">${(cp.action_type||'').replace('TELEGRAM_','')}</span>
+              ${cp.nudge_window_minutes ? `<span class="badge badge-blue" style="font-size:.65rem">${cp.nudge_window_minutes}m</span>` : ''}
             </div>
+          </div>
+          <button class="icon-btn del" style="margin-top:-2px;flex-shrink:0" title="Delete" onclick="deleteCheckpoint(event,'${cp._id}')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
+        </div>`;
+      col.appendChild(b);
+    });
+    cal.appendChild(col);
+  });
+}
+
+// Build days-picker HTML — presets row + checkboxes
+function _dayPickerHtml(selectedDays) {
+  const sel = selectedDays || [];
+  const checks = DAYS.map(d =>
+    `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0">
+      <input type="checkbox" class="day-cb" value="${d}" ${sel.includes(d)?'checked':''} style="accent-color:var(--orange);width:16px;height:16px">
+      <span style="font-size:.85rem;text-transform:capitalize;font-weight:600">${d}</span>
+    </label>`
+  ).join('');
+  return `
+    <div class="field">
+      <label>Applies On</label>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="setDayPreset('all')">All days</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="setDayPreset('weekdays')">Weekdays</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="setDayPreset('weekends')">Weekends</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="setDayPreset('none')">Clear</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:10px 14px">${checks}</div>
+    </div>`;
+}
+
+function setDayPreset(preset) {
+  const cbs = document.querySelectorAll('.day-cb');
+  cbs.forEach(cb => {
+    if (preset === 'all') cb.checked = true;
+    else if (preset === 'weekdays') cb.checked = ['monday','tuesday','wednesday','thursday','friday'].includes(cb.value);
+    else if (preset === 'weekends') cb.checked = ['saturday','sunday'].includes(cb.value);
+    else cb.checked = false;
+  });
+}
+
+function _selectedDays() {
+  return [...document.querySelectorAll('.day-cb:checked')].map(c => c.value);
+}
+
+function openEditCheckpoint(evt, cpId) {
+  if (evt) evt.stopPropagation();
+  const cp = scheduleData.find(x => x._id === cpId);
+  if (!cp) return;
+  showModal(`Edit: ${cp.display_name||cp.activity}`, `
+    <div class="row">
+      <div class="field"><label>Display Name</label><input type="text" id="m-name" value="${cp.display_name||cp.activity||''}"></div>
+      <div class="field"><label>Time (HH:MM)</label><input type="text" id="m-time" value="${cp.time}" style="max-width:100px"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Action Type</label>
+        <select id="m-action">
+          <option ${cp.action_type==='TELEGRAM_TEXT'?'selected':''}>TELEGRAM_TEXT</option>
+          <option ${cp.action_type==='CALL'?'selected':''}>CALL</option>
+          <option ${cp.action_type==='TELEGRAM_VOICE'?'selected':''}>TELEGRAM_VOICE</option>
+          <option ${cp.action_type==='IMAGE_DEMAND'?'selected':''}>IMAGE_DEMAND</option>
+        </select>
+      </div>
+      <div class="field"><label>Priority</label>
+        <select id="m-priority">
+          <option ${cp.priority==='CRITICAL'?'selected':''}>CRITICAL</option>
+          <option ${cp.priority==='HIGH'?'selected':''}>HIGH</option>
+          <option ${cp.priority==='MEDIUM'?'selected':''}>MEDIUM</option>
+          <option ${cp.priority==='LOW'?'selected':''}>LOW</option>
+        </select>
+      </div>
+    </div>
+    ${_dayPickerHtml(cp.days)}
+    <div class="row">
+      <div class="field"><label>Nudge Window (min)</label><input type="text" id="m-nudge" value="${cp.nudge_window_minutes||45}"></div>
+      <div class="field" style="justify-content:flex-end;flex-direction:row;align-items:center;gap:10px;padding-top:22px">
+        <input type="checkbox" id="m-active" ${cp.active!==false?'checked':''} style="width:20px;height:20px;accent-color:var(--orange)">
+        <label style="text-transform:none;font-size:.9rem;letter-spacing:0;font-weight:600" for="m-active">Active</label>
+      </div>
+    </div>`, async () => {
+    const days = _selectedDays();
+    if (!days.length) { toast('Select at least one day', 'err'); return; }
+    try {
+      await api('PATCH', `/api/dashboard/schedule/${cp._id}`, {
+        display_name: $('m-name').value,
+        time: $('m-time').value,
+        action_type: $('m-action').value,
+        priority: $('m-priority').value,
+        nudge_window_minutes: parseInt($('m-nudge').value)||45,
+        active: $('m-active').checked,
+        days,
+      });
+      toast('✅ Checkpoint updated');
+      hideModal(); loadSchedule();
+    } catch(e) { toast(e.message, 'err'); }
+  });
+}
+
+function openAddCheckpoint() {
+  showModal('New Checkpoint', `
+    <div class="row">
+      <div class="field"><label>Display Name</label><input type="text" id="m-name" placeholder="Morning Review"></div>
+      <div class="field"><label>Time (HH:MM)</label><input type="text" id="m-time" placeholder="09:00" style="max-width:100px"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Action Type</label>
+        <select id="m-action">
+          <option>TELEGRAM_TEXT</option>
+          <option>CALL</option>
+          <option>TELEGRAM_VOICE</option>
+          <option>IMAGE_DEMAND</option>
+        </select>
+      </div>
+      <div class="field"><label>Priority</label>
+        <select id="m-priority">
+          <option>HIGH</option>
+          <option selected>MEDIUM</option>
+          <option>LOW</option>
+          <option>CRITICAL</option>
+        </select>
+      </div>
+    </div>
+    ${_dayPickerHtml(['monday','tuesday','wednesday','thursday','friday'])}
+    <div class="field"><label>Nudge Window (min)</label><input type="text" id="m-nudge" value="45"></div>
+    <div class="field"><label>Description (optional)</label><input type="text" id="m-desc" placeholder="What this checkpoint checks..."></div>
+    `, async () => {
+    const days = _selectedDays();
+    if (!days.length) { toast('Select at least one day', 'err'); return; }
+    const name = $('m-name').value.trim();
+    if (!name) { toast('Enter a name', 'err'); return; }
+    const time = $('m-time').value.trim();
+    if (!time) { toast('Enter a time', 'err'); return; }
+    try {
+      await api('POST', '/api/dashboard/schedule', {
+        display_name: name, time,
+        action_type: $('m-action').value,
+        priority: $('m-priority').value,
+        days,
+        nudge_window_minutes: parseInt($('m-nudge').value)||45,
+        description: $('m-desc').value,
+      });
+      toast('✅ Checkpoint created');
+      hideModal(); loadSchedule();
+    } catch(e) { toast(e.message, 'err'); }
+  });
+}
+
+async function deleteCheckpoint(evt, cpId) {
+  if (evt) evt.stopPropagation();
+  const cp = scheduleData.find(x => x._id === cpId);
+  if (!confirm(`Delete "${cp?.display_name||cpId}"?`)) return;
+  try {
+    await api('DELETE', `/api/dashboard/schedule/${cpId}`);
+    toast('Deleted'); loadSchedule();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+// ─── CONTACTS ──────────────────────────────────────
+async function loadContacts() {
+  try {
+    const cs = await api('GET', '/api/dashboard/contacts');
+    const el = $('contacts-list');
+    if (!cs.length) { el.innerHTML = '<div class="empty"><span class="empty-icon">👥</span>No contacts yet. Add someone.</div>'; return; }
+    el.innerHTML = cs.map(c => `
+      <div class="list-item">
+        <div class="list-item-left">
+          <div class="list-item-title">${c.name}</div>
+          <div class="list-item-sub">${c.phone}${c.relationship?' · '+c.relationship:''}</div>
         </div>
-        <div id="clock">12:00:00 AM</div>
-    </header>
-
-    <main id="chat-box">
-        <div class="message chanakya-message">
-            <strong>The Guru Awaits</strong>
-            <p>Warrior, your dharma does not rest. Speak your intent, and I shall judge its worth.</p>
+        <div class="list-item-actions">
+          <button class="icon-btn del" title="Delete" onclick="deleteContact('${c.name.replace(/'/g,"\\'")}')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
         </div>
-    </main>
+      </div>`).join('');
+  } catch(e) { toast('Contacts failed: ' + e.message, 'err'); }
+}
 
-    <footer>
-        <form id="chat-form" class="input-container">
-            <input type="text" id="user-input" placeholder="Execute command..." autocomplete="off">
-            <button type="submit" id="send-btn">Transmit</button>
-        </form>
-    </footer>
+function openAddContact() {
+  showModal('Add Contact', `
+    <div class="field"><label>Name</label><input type="text" id="m-cname" placeholder="Mom, Boss, Teammate..."></div>
+    <div class="field"><label>Phone (E.164 format)</label><input type="tel" id="m-cphone" placeholder="+919148432228"></div>
+    <div class="field"><label>Relationship</label><input type="text" id="m-crel" placeholder="parent, colleague, friend..."></div>`,
+  async () => {
+    try {
+      await api('POST', '/api/dashboard/contacts', {name:$('m-cname').value, phone:$('m-cphone').value, relationship:$('m-crel').value});
+      toast('✅ Contact added'); hideModal(); loadContacts(); loadContactsForActions();
+    } catch(e) { toast(e.message, 'err'); }
+  });
+}
 
-    <script>
-        const chatBox = document.getElementById('chat-box');
-        const chatForm = document.getElementById('chat-form');
-        const userInput = document.getElementById('user-input');
-        const sendBtn = document.getElementById('send-btn');
+async function deleteContact(name) {
+  if (!confirm(`Delete "${name}"?`)) return;
+  try {
+    await api('DELETE', `/api/dashboard/contacts/${encodeURIComponent(name)}`);
+    toast(`Deleted ${name}`); loadContacts(); loadContactsForActions();
+  } catch(e) { toast(e.message, 'err'); }
+}
 
-        // Clock logic
-        function updateClock() {
-            const now = new Date();
-            document.getElementById('clock').innerText = now.toLocaleTimeString();
-        }
-        setInterval(updateClock, 1000);
-        updateClock();
+async function loadContactsForActions() {
+  try {
+    const cs = await api('GET', '/api/dashboard/contacts');
+    $('call-contact-name').innerHTML = '<option value="">— select contact —</option>' +
+      cs.map(c => `<option value="${c.name}">${c.name} (${c.phone})</option>`).join('');
+  } catch {}
+}
 
-        // System Status logic
-        async function updateStatus() {
-            try {
-                const res = await fetch('/api/status');
-                const data = await res.json();
-                
-                document.getElementById('tg-dot').className = data.telegram.active ? 'status-dot online' : 'status-dot';
-                document.getElementById('tw-dot').className = data.twilio.active ? 'status-dot online' : 'status-dot';
-                document.getElementById('guru-mode').innerText = data.guru.mode;
-            } catch (err) {
-                console.error("Status check failed");
-            }
-        }
-        setInterval(updateStatus, 30000);
-        updateStatus();
+// ─── RULES ─────────────────────────────────────────
+async function loadRules() {
+  try {
+    const rules = await api('GET', '/api/dashboard/rules');
+    const el = $('rules-list');
+    if (!rules.length) { el.innerHTML = '<div class="empty"><span class="empty-icon">📋</span>No rules yet. Add your operating principles.</div>'; return; }
+    el.innerHTML = rules.map(r => `
+      <div class="list-item">
+        <div class="list-item-left">
+          <div class="list-item-title" style="white-space:normal;font-size:.9rem;line-height:1.5">
+            <span style="color:var(--orange);font-weight:800;margin-right:6px">${r.index+1}.</span>${r.text}
+          </div>
+        </div>
+        <div class="list-item-actions">
+          <button class="icon-btn del" onclick="deleteRule(${r.index})">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
+        </div>
+      </div>`).join('');
+  } catch(e) { toast('Rules failed: ' + e.message, 'err'); }
+}
 
-        function addMessage(text, role) {
-            const div = document.createElement('div');
-            div.className = `message ${role === 'user' ? 'user-message' : 'chanakya-message'}`;
-            
-            if (role === 'chanakya') {
-                div.innerHTML = `<strong>Chanakya</strong><p>${text.replace(/\n/g, '<br>')}</p>`;
-            } else {
-                div.innerText = text;
-            }
-            
-            chatBox.appendChild(div);
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
+function openAddRule() {
+  showModal('Add Personal Rule', `
+    <div class="field">
+      <label>Rule / instruction for Chanakya</label>
+      <textarea id="m-rule-text" rows="4" placeholder="e.g. Never allow me to skip gym two days in a row without a written medical reason."></textarea>
+    </div>`,
+  async () => {
+    const text = $('m-rule-text').value.trim();
+    if (!text) { toast('Enter a rule', 'err'); return; }
+    try {
+      await api('POST', '/api/dashboard/rules', {text});
+      toast('✅ Rule added'); hideModal(); loadRules();
+    } catch(e) { toast(e.message, 'err'); }
+  });
+}
 
-        chatForm.onsubmit = async (e) => {
-            e.preventDefault();
-            const text = userInput.value.trim();
-            if (!text) return;
+async function deleteRule(index) {
+  if (!confirm('Delete this rule?')) return;
+  try {
+    await api('DELETE', `/api/dashboard/rules/${index}`);
+    toast('Rule deleted'); loadRules();
+  } catch(e) { toast(e.message, 'err'); }
+}
 
-            addMessage(text, 'user');
-            userInput.value = '';
-            userInput.disabled = true;
-            sendBtn.disabled = true;
+// ─── WISDOM ────────────────────────────────────────
+const CAT_COLORS = {rule:'red',quote:'gold',goal:'green',trait:'blue',reference:'purple',note:'gray'};
+let wisdomFilter = '';
 
-            try {
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
-                });
+function filterWisdom(cat) {
+  wisdomFilter = cat;
+  document.querySelectorAll('#wisdom-chips .chip').forEach(c => {
+    c.classList.toggle('active', (c.textContent.toLowerCase() === (cat||'all')));
+  });
+  loadWisdom(cat);
+}
 
-                const data = await response.json();
-                addMessage(data.response, 'chanakya');
-            } catch (err) {
-                addMessage("Communication failure. The cloud is thick.", 'chanakya');
-            } finally {
-                userInput.disabled = false;
-                sendBtn.disabled = false;
-                userInput.focus();
-            }
-        };
-    </script>
+async function loadWisdom(category) {
+  wisdomFilter = category;
+  try {
+    let url = '/api/wisdom';
+    if (category) url += `?category=${category}`;
+    const entries = await api('GET', url);
+    const el = $('wisdom-list');
+    if (!entries.length) { el.innerHTML = `<div class="empty"><span class="empty-icon">📖</span>No entries${category?' in '+category:''} yet.</div>`; return; }
+    el.innerHTML = entries.map(e => `
+      <div class="list-item" style="align-items:flex-start">
+        <div class="list-item-left">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+            <span class="badge badge-${CAT_COLORS[e.category]||'gray'}">${e.category.toUpperCase()}</span>
+            ${e.source?`<span style="font-size:.75rem;color:var(--muted)">${e.source}</span>`:''}
+            ${!e.active?`<span class="badge badge-gray">DISABLED</span>`:''}
+          </div>
+          <div style="font-size:.9rem;line-height:1.55">${e.text}</div>
+          ${e.triggers&&e.triggers.length?`<div style="font-size:.75rem;color:var(--muted);margin-top:5px">→ when: ${e.triggers.join(', ')}</div>`:''}
+        </div>
+        <div class="list-item-actions">
+          <button class="icon-btn" title="${e.active?'Disable':'Enable'}" onclick="toggleWisdom(${e.index},${!e.active})">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              ${e.active?'<circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/>':'<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>'}
+            </svg>
+          </button>
+          <button class="icon-btn del" onclick="deleteWisdom(${e.index})">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
+        </div>
+      </div>`).join('');
+  } catch(e) { toast('Wisdom failed: ' + e.message, 'err'); }
+}
+
+function openAddWisdom() {
+  showModal('Add Wisdom', `
+    <div class="field">
+      <label>Raw experience / quote / insight</label>
+      <textarea id="m-w-text" rows="4" placeholder="Write what you learned, a quote that hit you, a principle you want to live by..."></textarea>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Category (hint)</label>
+        <select id="m-w-cat">
+          <option value="">auto-detect</option>
+          <option value="rule">Rule</option>
+          <option value="quote">Quote</option>
+          <option value="goal">Goal</option>
+          <option value="trait">Trait</option>
+          <option value="reference">Reference</option>
+          <option value="note">Note</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Source</label>
+        <input type="text" id="m-w-src" placeholder="Bhagavad Gita, Harvey Specter...">
+      </div>
+    </div>
+    <p style="font-size:.8rem;color:var(--muted)">⚡ Chanakya will auto-extract a principle from your raw text using AI.</p>`,
+  async () => {
+    const text = $('m-w-text').value.trim();
+    if (!text) { toast('Enter some text', 'err'); return; }
+    $('modal-confirm').disabled = true; $('modal-confirm').textContent = 'Extracting…';
+    try {
+      await api('POST', '/api/wisdom', {raw_input:text, category:$('m-w-cat').value, source:$('m-w-src').value});
+      toast('✅ Wisdom entry added'); hideModal(); loadWisdom(wisdomFilter);
+    } catch(e) { toast(e.message, 'err'); }
+    finally { $('modal-confirm').disabled=false; $('modal-confirm').textContent='Confirm'; }
+  });
+}
+
+async function toggleWisdom(index, active) {
+  try { await api('PATCH', `/api/wisdom/${index}/toggle?active=${active}`); loadWisdom(wisdomFilter); } catch(e) { toast(e.message,'err'); }
+}
+async function deleteWisdom(index) {
+  if (!confirm('Delete this wisdom entry?')) return;
+  try { await api('DELETE', `/api/wisdom/${index}`); toast('Deleted'); loadWisdom(wisdomFilter); } catch(e) { toast(e.message,'err'); }
+}
+
+// ─── ACTIONS ───────────────────────────────────────
+async function callSelf() {
+  const text = $('call-self-text').value.trim();
+  if (!text) { toast('Enter opening text', 'err'); return; }
+  try {
+    const r = await api('POST', '/api/dashboard/actions/call-self', {opening_text: text});
+    toast(`📞 Call scheduled — task …${r.task_id.slice(-6)}`);
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function callContact() {
+  const name = $('call-contact-name').value;
+  const topic = $('call-contact-topic').value.trim();
+  if (!name) { toast('Select a contact', 'err'); return; }
+  if (!topic) { toast('Enter a topic', 'err'); return; }
+  try {
+    const r = await api('POST', '/api/dashboard/actions/call-contact', {contact_name:name, topic});
+    toast(`📞 Calling ${r.contact} — task …${r.task_id.slice(-6)}`);
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+// ─── LOGS ──────────────────────────────────────────
+async function loadLogs() {
+  const filter = $('log-filter').value;
+  try {
+    let url = '/api/dashboard/logs?limit=40';
+    if (filter) url += `&trigger_type=${filter}`;
+    const logs = await api('GET', url);
+    const el = $('logs-list');
+    if (!logs.length) { el.innerHTML = '<div class="empty"><span class="empty-icon">📊</span>No logs found.</div>'; return; }
+    el.innerHTML = logs.map(l => {
+      const ev = l.ai_evaluation||{};
+      return `<div class="log-item">
+        <div class="log-meta">
+          <span class="badge badge-orange">${l.trigger_type}</span>
+          <span class="badge badge-blue">${l.channel}</span>
+          ${verdictBadge(ev.verdict)}
+          <span class="log-time">${formatDt(l.timestamp)}</span>
+        </div>
+        ${l.message_sent?`<div class="log-msg">📤 ${l.message_sent.slice(0,140)}${l.message_sent.length>140?'…':''}</div>`:''}
+        ${l.user_response?`<div class="log-response">💬 ${l.user_response.slice(0,140)}${l.user_response.length>140?'…':''}</div>`:''}
+      </div>`;
+    }).join('');
+  } catch(e) { toast('Logs failed: ' + e.message, 'err'); }
+}
+
+// ─── PROFILE ───────────────────────────────────────
+let profileData = null;
+
+async function loadProfile() {
+  refreshGoogleStatus();
+  try {
+    profileData = await api('GET', '/api/dashboard/profile');
+    $('profile-stats-grid').innerHTML = `
+      <div class="stat-card"><div class="stat-label">🔥 Streak</div><div class="stat-value stat-orange">${profileData.streak_count||0}</div><div style="font-size:.8rem;color:var(--muted)">days</div></div>
+      <div class="stat-card"><div class="stat-label">🏆 Longest</div><div class="stat-value stat-gold">${profileData.longest_streak||0}</div><div style="font-size:.8rem;color:var(--muted)">days</div></div>
+      <div class="stat-card"><div class="stat-label">💀 Failures</div><div class="stat-value stat-red">${profileData.failure_count_this_week||0}</div><div style="font-size:.8rem;color:var(--muted)">this week</div></div>`;
+    $('profile-fields').innerHTML = `
+      <div class="field"><label>Name</label><input type="text" value="${profileData.name||''}" disabled style="opacity:.55"></div>
+      <div class="field"><label>Mode</label>
+        <select id="p-mode">
+          <option ${profileData.current_mode==='NORMAL'?'selected':''}>NORMAL</option>
+          <option ${profileData.current_mode==='WAR_MODE'?'selected':''}>WAR_MODE</option>
+          <option ${profileData.current_mode==='INJURED'?'selected':''}>INJURED</option>
+          <option ${profileData.current_mode==='AWAY'?'selected':''}>AWAY</option>
+        </select></div>
+      <div class="field"><label>EOD Time</label><input type="text" id="p-eod" value="${profileData.eod_time||'21:00'}"></div>
+      <div class="field"><label>Morning Todo Time</label><input type="text" id="p-morning" value="${profileData.morning_todo_time||''}"></div>
+      <div class="field"><label>Timezone</label><input type="text" id="p-tz" value="${profileData.timezone||'Asia/Kolkata'}"></div>`;
+  } catch(e) { toast('Profile failed: ' + e.message, 'err'); }
+}
+
+async function saveProfile() {
+  try {
+    await api('PATCH', '/api/dashboard/profile', {
+      current_mode: $('p-mode').value,
+      eod_time: $('p-eod').value,
+      morning_todo_time: $('p-morning').value||null,
+      timezone: $('p-tz').value,
+    });
+    toast('✅ Profile saved'); refreshStatus();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function setWarMode(activate) {
+  try {
+    await api('POST', `/api/dashboard/profile/war-mode?activate=${activate}`);
+    toast(activate ? '⚔ WAR MODE ACTIVATED — 24 hours, no mercy.' : '✅ War mode deactivated.');
+    refreshStatus(); loadProfile();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function refreshGoogleStatus() {
+  try {
+    const d = await api('GET', '/auth/google/status');
+    const btn = $('google-connect-btn');
+    const txt = $('google-status-text');
+    if (!btn || !txt) return;
+    if (d.connected) {
+      txt.innerHTML = `<span style="color:var(--green)">✓ Connected</span> — Calendar + Gmail active`;
+      btn.textContent = 'Disconnect';
+      btn.className = 'btn btn-danger';
+      btn.onclick = () => { if(confirm('Disconnect Google?')) window.location='/auth/google/disconnect'; };
+    } else {
+      txt.textContent = 'Not connected — Chanakya cannot see your Calendar or Gmail';
+      btn.textContent = 'Connect Google';
+      btn.className = 'btn btn-gold';
+      btn.onclick = connectGoogle;
+    }
+  } catch {}
+}
+
+function connectGoogle() {
+  window.location = '/auth/google';
+}
+
+// Check for OAuth redirect result
+(function() {
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('google_connected')) {
+    toast('✅ Google connected — Calendar + Gmail active');
+    history.replaceState({}, '', '/');
+  }
+  if (p.get('google_error')) {
+    toast('Google connection failed: ' + p.get('google_error'), 'err');
+    history.replaceState({}, '', '/');
+  }
+})();
+</script>
 </body>
 </html>

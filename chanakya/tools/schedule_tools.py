@@ -33,6 +33,7 @@ from chanakya.tools.accountability_tools import ALL_ACCOUNTABILITY_TOOLS
 from chanakya.tools.ritual_tools import ALL_RITUAL_TOOLS
 from chanakya.tools.council_tools import ALL_COUNCIL_TOOLS
 from chanakya.tools.goal_tools import ALL_GOAL_TOOLS
+from chanakya.tools.google_tools import ALL_GOOGLE_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -1886,4 +1887,4 @@ ALL_TOOLS = [
     schedule_message,
     cancel_scheduled_message,
     reschedule_activity,
-] + ALL_ACCOUNTABILITY_TOOLS + ALL_RITUAL_TOOLS + ALL_COUNCIL_TOOLS + ALL_GOAL_TOOLS
+] + ALL_ACCOUNTABILITY_TOOLS + ALL_RITUAL_TOOLS + ALL_COUNCIL_TOOLS + ALL_GOAL_TOOLS + ALL_GOOGLE_TOOLS

@@ -187,16 +187,23 @@ async def generic_process_message(
     # Update log
     if log_id is not None:
         try:
-            # Task 1.1: Cancel pending nudges for the user's last unanswered checkpoint
+            # Cancel ALL pending nudges for this user's unanswered checkpoints
             from chanakya.scheduler.task_runner import cancel_nudge
-            last_pending = interaction_logs.find_one(
-                {"user_id": user["_id"], "trigger_type": "SCHEDULED", "user_response": None},
-                sort=[("timestamp", -1)]
+            all_pending = list(interaction_logs.find(
+                {"user_id": user["_id"], "trigger_type": "SCHEDULED", "user_response": None}
+            ))
+            for pending_log in all_pending:
+                cancel_nudge(pending_log["_id"])
+                interaction_logs.update_one(
+                    {"_id": pending_log["_id"]},
+                    {"$set": {"user_response": user_input}}
+                )
+            # Also cancel any CALL_USER tasks that are still PENDING for this user
+            from chanakya.db.mongo import agent_tasks as _at
+            _at.update_many(
+                {"user_id": user["_id"], "task_type": "CALL_USER", "status": "PENDING"},
+                {"$set": {"status": "COMPLETED", "error_message": "Cancelled: user responded"}}
             )
-            if last_pending:
-                cancel_nudge(last_pending["_id"])
-                # Mark it as 'answered' by linking to this manual response
-                interaction_logs.update_one({"_id": last_pending["_id"]}, {"$set": {"user_response": user_input}})
 
             interaction_logs.update_one(
                 {"_id": log_id},
@@ -209,6 +216,17 @@ async def generic_process_message(
                     },
                 }},
             )
+
+            # Backfill verdict to SCHEDULED logs that triggered this response
+            if llm_decision.verdict and all_pending:
+                for pending_log in all_pending:
+                    interaction_logs.update_one(
+                        {"_id": pending_log["_id"], "ai_evaluation.verdict": None},
+                        {"$set": {
+                            "ai_evaluation.verdict": llm_decision.verdict,
+                            "ai_evaluation.reasoning": llm_decision.reasoning,
+                        }},
+                    )
         except Exception:
             logger.exception("Failed to update interaction_log %s", log_id)
 
@@ -354,14 +372,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    import base64
+    import io
     telegram_id = str(update.effective_user.id)
     caption = update.message.caption or ""
-    
-    # Get the largest photo
+
     photo_file = await update.message.photo[-1].get_file()
-    media_url = photo_file.file_path # This is a temporary public URL from Telegram
-    
-    logger.info("📸 Photo received from %s. Caption: %s", telegram_id, caption)
+    buf = io.BytesIO()
+    await photo_file.download_to_memory(buf)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    media_url = f"data:image/jpeg;base64,{b64}"
+
+    logger.info("📸 Photo received from %s (size=%d bytes). Caption: %s", telegram_id, len(buf.getvalue()), caption)
     await _process_message(update, f"[PHOTO] {caption or ''}", telegram_id, media_url=media_url)
 
 

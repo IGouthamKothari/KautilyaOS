@@ -48,8 +48,6 @@ async def process(
 
     # 2. Privacy scrub
     state.scrubbed_input = scrub_context(raw_input, user["_id"])
-    if media_url:
-        state.scrubbed_input += f"\n[Media URL: {media_url}]"
 
     # 3. Route (Mantri)
     state = await route(state, user)
