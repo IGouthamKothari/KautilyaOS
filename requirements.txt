@@ -8,6 +8,7 @@ pydantic
 pydantic-settings
 python-dotenv
 langchain
+langchain-core
 langchain-openai
 langchain-community
 python-telegram-bot
@@ -17,3 +18,7 @@ pytz
 apscheduler
 python-multipart
 certifi
+requests
+google-auth
+google-auth-oauthlib
+google-api-python-client
