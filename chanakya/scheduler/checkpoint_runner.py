@@ -361,7 +361,7 @@ def _fire_checkpoint(user: dict, cp: dict) -> None:
     expects_response = cp.get("expects_response", True) and not cp.get("is_daily_event", False)
     if expects_response:
         from chanakya.scheduler.task_runner import schedule_engagement_nudge
-        interval = cp.get("persistent_nudge_interval_minutes", 15) if cp.get("persistent_nudge") else 15
+        interval = cp.get("persistent_nudge_interval_minutes", 5) if cp.get("persistent_nudge") else 5
         schedule_engagement_nudge(log_id, interval)
 
     if cp.get("is_daily_event"):

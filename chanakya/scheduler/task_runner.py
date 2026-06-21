@@ -149,7 +149,7 @@ def _fire_nudge(log_id: ObjectId) -> None:
     if log.get("checkpoint_id"):
         cp = cp_col.find_one({"_id": log["checkpoint_id"]})
 
-    nudge_window = cp.get("nudge_window_minutes", 45) if cp else 45
+    nudge_window = cp.get("nudge_window_minutes", 20) if cp else 20
     is_persistent = cp.get("persistent_nudge", False) if cp else False
     checkpoint_name = (cp.get("display_name") or cp.get("activity", "a checkpoint")).replace("_", " ").title() if cp else "a checkpoint"
     original_msg = log.get("message_sent", "")
@@ -227,8 +227,8 @@ def _fire_nudge(log_id: ObjectId) -> None:
             _run_async(_send_work_nudge())
             logger.info("Within working hours — text-only nudge #2 for log %s.", log_id)
 
-        # One final nudge after 15 min regardless
-        schedule_engagement_nudge(log_id, 15)
+        # Final nudge after 10 min, then done
+        schedule_engagement_nudge(log_id, 10)
 
     elif nudge_count == 3:
         # Final nudge: text only, no more calls
@@ -252,8 +252,8 @@ def _fire_nudge(log_id: ObjectId) -> None:
             )
         _run_async(_send_first())
 
-        # Schedule escalation in 15 mins
-        schedule_engagement_nudge(log_id, 15)
+        # Schedule escalation in 5 mins
+        schedule_engagement_nudge(log_id, 5)
 
 
 def _run_async(coro):
