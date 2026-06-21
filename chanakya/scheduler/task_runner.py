@@ -9,6 +9,8 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
+import pytz
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from bson import ObjectId
 
@@ -116,6 +118,17 @@ def _execute_task_by_id(task_id: ObjectId) -> None:
         agent_tasks.update_one({"_id": task_id}, {"$set": {"status": "COMPLETED", "error_message": "Unknown type"}})
 
 
+def _is_outside_working_hours(user_doc: dict) -> bool:
+    """Return True if current local time is outside 09:00–17:00 (working hours)."""
+    tz_str = user_doc.get("timezone", "Asia/Kolkata")
+    try:
+        tz = pytz.timezone(tz_str)
+    except pytz.UnknownTimeZoneError:
+        tz = pytz.timezone("Asia/Kolkata")
+    now_local = datetime.now(tz)
+    return not (9 <= now_local.hour < 17)
+
+
 def _fire_nudge(log_id: ObjectId) -> None:
     """Fire the engagement nudge for a specific log."""
     from chanakya.db.mongo import interaction_logs, checkpoints as cp_col
@@ -138,9 +151,10 @@ def _fire_nudge(log_id: ObjectId) -> None:
 
     nudge_window = cp.get("nudge_window_minutes", 45) if cp else 45
     is_persistent = cp.get("persistent_nudge", False) if cp else False
+    checkpoint_name = (cp.get("display_name") or cp.get("activity", "a checkpoint")).replace("_", " ").title() if cp else "a checkpoint"
+    original_msg = log.get("message_sent", "")
 
     # Hard limit: stop nudging after nudge_window_minutes from the original checkpoint.
-    # If the user hasn't responded by then, they're ignoring it or busy.
     log_timestamp = log.get("timestamp")
     if log_timestamp and (datetime.utcnow() - log_timestamp) > timedelta(minutes=nudge_window):
         logger.info("Nudge expired (>%dmin) for log %s — marking abandoned.", nudge_window, log_id)
@@ -149,9 +163,10 @@ def _fire_nudge(log_id: ObjectId) -> None:
             {"$set": {"ai_evaluation.verdict": "ABANDONED", "ai_evaluation.reasoning": f"No response within {nudge_window} minutes"}}
         )
         return
+
     nudge_count = log.get("nudge_count", 0) + 1
 
-    # Hard cap: max 3 nudges total (1 text + 1 call is enough)
+    # Hard cap: max 3 nudges total
     if nudge_count > 3:
         logger.info("Nudge cap reached (3) for log %s — stopping.", log_id)
         interaction_logs.update_one(
@@ -162,8 +177,9 @@ def _fire_nudge(log_id: ObjectId) -> None:
 
     interaction_logs.update_one({"_id": log_id}, {"$inc": {"nudge_count": 1}})
 
+    outside_hours = _is_outside_working_hours(user_doc)
+
     if nudge_count == 2:
-        # 2nd nudge: escalate to call ONCE — never again for this log
         existing_call = agent_tasks.find_one({
             "user_id": uid, "task_type": "CALL_USER",
             "payload.log_id": str(log_id), "status": {"$in": ["PENDING", "RUNNING"]}
@@ -172,37 +188,71 @@ def _fire_nudge(log_id: ObjectId) -> None:
             logger.info("Call already scheduled for log %s — skipping duplicate.", log_id)
             return
 
-        text = "You've been unresponsive. This is your one escalation call."
-        if is_persistent and cp:
-            text = f"Persistent check: {cp.get('display_name')}. Respond now or this is marked abandoned."
+        if outside_hours:
+            # Outside 9–5: call with context about what was ignored
+            snippet = original_msg[:120].strip()
+            call_text = (
+                f"This is Chanakya. You did not reply to the {checkpoint_name} checkpoint. "
+                f"The message was: {snippet}. "
+                f"You need to act on this now. Call ended."
+            )
+            if is_persistent and cp:
+                call_text = (
+                    f"Persistent check for {checkpoint_name}. You have not responded. "
+                    f"Reply on Telegram or this is marked abandoned."
+                )
 
-        task_id = agent_tasks.insert_one({
-            "user_id": uid, "task_type": "CALL_USER", "status": "PENDING",
-            "payload": {"opening_text": text, "log_id": str(log_id)},
-            "created_at": datetime.utcnow()
-        }).inserted_id
-        schedule_agent_task(task_id)
+            task_id = agent_tasks.insert_one({
+                "user_id": uid, "task_type": "CALL_USER", "status": "PENDING",
+                "payload": {"opening_text": call_text, "log_id": str(log_id)},
+                "created_at": datetime.utcnow()
+            }).inserted_id
+            schedule_agent_task(task_id)
+            logger.info("Outside working hours — escalating log %s to call.", log_id)
+        else:
+            # 9–5: stay on Telegram, skip the call
+            async def _send_work_nudge():
+                from telegram import Bot
+                from chanakya.config import TELEGRAM_BOT_TOKEN
+                snippet = original_msg[:120].strip()
+                msg = (
+                    f"⚔️ <b>Still waiting</b>\n"
+                    f"You haven't replied to <b>{checkpoint_name}</b>.\n"
+                    f"{snippet}\n\n"
+                    f"Reply now. Outside working hours, this becomes a call."
+                )
+                await Bot(token=TELEGRAM_BOT_TOKEN).send_message(
+                    chat_id=user_doc["telegram_id"], text=msg, parse_mode="HTML"
+                )
+            _run_async(_send_work_nudge())
+            logger.info("Within working hours — text-only nudge #2 for log %s.", log_id)
 
-        # One final text nudge after 15 min, then done
+        # One final nudge after 15 min regardless
         schedule_engagement_nudge(log_id, 15)
+
     elif nudge_count == 3:
-        # Final nudge: just a last text, no more calls
-        async def _send():
+        # Final nudge: text only, no more calls
+        async def _send_final():
             from telegram import Bot
             from chanakya.config import TELEGRAM_BOT_TOKEN
-            msg = "Last reminder. No further follow-ups. Marking as abandoned if no reply."
-            await Bot(token=TELEGRAM_BOT_TOKEN).send_message(chat_id=user_doc["telegram_id"], text=msg)
-        _run_async(_send())
+            msg = f"Last reminder for <b>{checkpoint_name}</b>. No further follow-ups. Marking as abandoned if no reply."
+            await Bot(token=TELEGRAM_BOT_TOKEN).send_message(
+                chat_id=user_doc["telegram_id"], text=msg, parse_mode="HTML"
+            )
+        _run_async(_send_final())
+
     else:
         # First nudge: Telegram text warning
-        async def _send():
+        async def _send_first():
             from telegram import Bot
             from chanakya.config import TELEGRAM_BOT_TOKEN
             msg = "⚔️ <b>Dharma Monitor</b>\nDelay is the silent killer of empires. Respond now."
-            await Bot(token=TELEGRAM_BOT_TOKEN).send_message(chat_id=user_doc["telegram_id"], text=msg, parse_mode="HTML")
-        _run_async(_send())
+            await Bot(token=TELEGRAM_BOT_TOKEN).send_message(
+                chat_id=user_doc["telegram_id"], text=msg, parse_mode="HTML"
+            )
+        _run_async(_send_first())
 
-        # Schedule escalation (call) in 15 mins if still no response
+        # Schedule escalation in 15 mins
         schedule_engagement_nudge(log_id, 15)
 
 
