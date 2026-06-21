@@ -76,6 +76,7 @@ TOOL_ASSIGNMENTS: dict[str, list[str]] = {
         "gmail_get_thread",
         "gmail_send_email",
         "gmail_reply_email",
+        "log_retroactive",
     ],
     "kautilya": [
         "get_financial_ledger",

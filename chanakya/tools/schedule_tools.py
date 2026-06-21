@@ -1851,8 +1851,127 @@ def cancel_scheduled_message(user_id: str, event_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Convenience list for binding to AgentExecutor
+# Retroactive logging — mark missed/abandoned checkpoint as done on time
 # ---------------------------------------------------------------------------
+
+@tool
+def log_retroactive(user_id: str, checkpoint_name: str, response: str, done_at: str = "") -> str:
+    """Log a checkpoint response retroactively — as if the user had replied on time.
+
+    Use when the user says things like:
+      "I did do my workout, just didn't reply"
+      "log my morning run, I missed the message"
+      "mark [task] as done, I was busy"
+      "I completed [activity] at 7am"
+
+    Sets verdict to SUCCESS and clears any ABANDONED/FAILED status.
+    The interaction appears in logs as completed on time — no miss, no penalty.
+
+    Args:
+        user_id: The active user's ID.
+        checkpoint_name: Name or keyword matching the checkpoint (e.g. "workout", "morning run").
+        response: What the user did / their retroactive reply.
+        done_at: Optional time they actually did it, e.g. "07:30" or "2 hours ago". Stored as a note.
+    """
+    import pytz
+    from chanakya.db.mongo import interaction_logs as il_col, checkpoints as cp_col
+
+    try:
+        uid = ObjectId(user_id)
+    except Exception:
+        return f"Error: invalid user_id {user_id!r}."
+
+    user_doc = users.find_one({"_id": uid})
+    if not user_doc:
+        return "Error: user not found."
+
+    tz_str = user_doc.get("timezone", "Asia/Kolkata")
+    try:
+        tz = pytz.timezone(tz_str)
+    except Exception:
+        tz = pytz.timezone("Asia/Kolkata")
+
+    now_utc = datetime.utcnow()
+    today_start_utc = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(pytz.utc).replace(tzinfo=None)
+
+    # Find the most recent ABANDONED or no-verdict log for this checkpoint today
+    keyword = checkpoint_name.lower().strip()
+
+    # Search today's logs for a match on message_sent or checkpoint display_name
+    candidates = list(il_col.find({
+        "user_id": uid,
+        "timestamp": {"$gte": today_start_utc},
+    }).sort("timestamp", -1).limit(50))
+
+    matched_log = None
+    for log in candidates:
+        msg = (log.get("message_sent") or "").lower()
+        cp_id = log.get("checkpoint_id")
+        cp_name_match = False
+        if cp_id:
+            cp_doc = cp_col.find_one({"_id": cp_id})
+            if cp_doc:
+                cp_display = (cp_doc.get("display_name") or cp_doc.get("activity") or "").lower()
+                cp_name_match = keyword in cp_display
+        if keyword in msg or cp_name_match:
+            matched_log = log
+            break
+
+    retroactive_note = f"[Retroactive] {response}"
+    if done_at:
+        retroactive_note += f" (done at {done_at})"
+
+    if matched_log:
+        il_col.update_one(
+            {"_id": matched_log["_id"]},
+            {"$set": {
+                "user_response": retroactive_note,
+                "ai_evaluation.verdict": "SUCCESS",
+                "ai_evaluation.confidence": 0.9,
+                "ai_evaluation.reasoning": f"User logged retroactively: {response}",
+                "retroactive": True,
+                "retroactive_logged_at": now_utc,
+            }}
+        )
+        # Cancel any pending nudge jobs for this log
+        try:
+            from chanakya.scheduler.task_runner import task_scheduler
+            job_id = f"nudge_{matched_log['_id']}"
+            if task_scheduler.get_job(job_id):
+                task_scheduler.remove_job(job_id)
+        except Exception:
+            pass
+
+        _write_audit(uid, "log_retroactive", {"checkpoint": checkpoint_name, "response": response}, "SUCCESS")
+        return (
+            f"Logged. '{checkpoint_name}' marked as completed — no miss, no penalty. "
+            f"Recorded: {retroactive_note}"
+        )
+
+    # No existing log found — create a fresh SUCCESS log entry so it appears in the day log
+    il_col.insert_one({
+        "user_id": uid,
+        "checkpoint_id": None,
+        "timestamp": now_utc,
+        "trigger_type": "RETROACTIVE",
+        "channel": "MANUAL",
+        "message_sent": f"Retroactive log: {checkpoint_name}",
+        "user_response": retroactive_note,
+        "ai_evaluation": {
+            "verdict": "SUCCESS",
+            "confidence": 0.9,
+            "reasoning": f"User logged retroactively: {response}",
+        },
+        "retroactive": True,
+        "retroactive_logged_at": now_utc,
+        "created_at": now_utc,
+    })
+
+    _write_audit(uid, "log_retroactive", {"checkpoint": checkpoint_name, "response": response}, "NEW_ENTRY")
+    return (
+        f"No matching checkpoint message found today — created a new SUCCESS entry for '{checkpoint_name}'. "
+        f"Recorded: {retroactive_note}"
+    )
 
 ALL_TOOLS = [
     escalate_punishment,
@@ -1887,4 +2006,5 @@ ALL_TOOLS = [
     schedule_message,
     cancel_scheduled_message,
     reschedule_activity,
+    log_retroactive,
 ] + ALL_ACCOUNTABILITY_TOOLS + ALL_RITUAL_TOOLS + ALL_COUNCIL_TOOLS + ALL_GOAL_TOOLS + ALL_GOOGLE_TOOLS
