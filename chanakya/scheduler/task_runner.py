@@ -257,46 +257,9 @@ def _fire_nudge(log_id: ObjectId) -> None:
 
 
 def _run_async(coro):
-    """Run a coroutine from a sync background thread (thread-safe).
-
-    APScheduler runs jobs in daemon threads that have no event loop.
-    We need to schedule the coroutine on the main thread's running loop.
-    """
-    import asyncio
-
-    try:
-        # Are we already inside a running loop on this thread?
-        running_loop = asyncio.get_running_loop()
-    except RuntimeError:
-        running_loop = None
-
-    if running_loop is not None:
-        # Same thread as the event loop — fire-and-forget
-        asyncio.ensure_future(coro)
-        return
-
-    # Background thread: find the main event loop via the global policy
-    # and schedule the coroutine on it using the thread-safe API.
-    try:
-        import threading
-        main_loop = None
-        for thread in threading.enumerate():
-            loop_attr = getattr(thread, "_asyncio_loop", None)
-            if loop_attr is not None and loop_attr.is_running():
-                main_loop = loop_attr
-                break
-
-        if main_loop is not None:
-            asyncio.run_coroutine_threadsafe(coro, main_loop)
-        else:
-            # No running loop found — spin up a fresh one (last resort)
-            asyncio.run(coro)
-    except Exception as exc:
-        logger.error("_run_async failed to schedule coroutine: %s", exc)
-        try:
-            asyncio.run(coro)
-        except Exception:
-            pass
+    """Run a coroutine from a sync background thread (thread-safe)."""
+    from chanakya.async_utils import run_async
+    run_async(coro)
 
 
 def _execute_proxy_call_task(task: dict) -> None:

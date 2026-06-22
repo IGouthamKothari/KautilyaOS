@@ -512,15 +512,8 @@ def _push_telegram(user: dict, text: str) -> None:
             logger.error("push_telegram failed for user %s: %s", user.get("_id"), exc)
 
     try:
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-
-        if running_loop is not None and running_loop.is_running():
-            asyncio.ensure_future(_send())
-        else:
-            asyncio.run(_send())
+        from chanakya.async_utils import run_async
+        run_async(_send())
     except Exception as exc:
         logger.error("push_telegram scheduling failed: %s", exc)
 
@@ -705,13 +698,9 @@ async def execute_actions(
                         except Exception as e:
                             logger.error("Failed to send voice note to %s: %s", user["_id"], e)
                     
-                    import asyncio
                     try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            asyncio.ensure_future(_send_v())
-                        else:
-                            asyncio.run(_send_v())
+                        from chanakya.async_utils import run_async
+                        run_async(_send_v())
                     except Exception as e:
                         logger.error("Failed to schedule send_voice for %s: %s", user["_id"], e)
                 

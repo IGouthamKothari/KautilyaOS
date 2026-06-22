@@ -252,11 +252,5 @@ async def _send_agenda_nudge(user: dict, msg: str) -> None:
 
 def _run_async(coro):
     """Run an async coroutine from a sync scheduler thread."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(coro)
-        else:
-            asyncio.run(coro)
-    except RuntimeError:
-        asyncio.run(coro)
+    from chanakya.async_utils import run_async
+    run_async(coro)

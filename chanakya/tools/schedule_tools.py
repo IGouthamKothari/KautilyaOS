@@ -1581,41 +1581,8 @@ def send_telegram_message(user_id: str, message: str) -> str:
                 raise
 
     try:
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-
-        if running_loop is not None and running_loop.is_running():
-            # We're inside the async agent loop on this thread — fire-and-forget.
-            asyncio.ensure_future(_send())
-        else:
-            # Background thread (APScheduler, Twilio webhook thread, etc.)
-            # Find the main event loop and schedule the coroutine on it.
-            import threading
-            main_loop = None
-            for thread in threading.enumerate():
-                if hasattr(thread, "_target") and thread._target is not None:
-                    pass
-                loop_attr = getattr(thread, "_asyncio_loop", None)
-                if loop_attr is not None and loop_attr.is_running():
-                    main_loop = loop_attr
-                    break
-
-            if main_loop is None:
-                # Last resort: try the global event loop policy
-                try:
-                    main_loop = asyncio.get_event_loop_policy().get_event_loop()
-                except RuntimeError:
-                    main_loop = None
-
-            if main_loop is not None and main_loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(_send(), main_loop)
-                future.result(timeout=10)  # wait up to 10s
-            else:
-                # No running loop anywhere — create a fresh one just for this call
-                asyncio.run(_send())
-
+        from chanakya.async_utils import run_async
+        run_async(_send())
         result = f"Message sent to {user_doc.get('name', 'user')} on Telegram."
         _write_audit(uid, "send_telegram_message", {"message": message[:100]}, result)
         return result

@@ -374,22 +374,8 @@ def _fire_checkpoint(user: dict, cp: dict) -> None:
 
 def _run_async(coro):
     """Run a coroutine from a sync background thread (thread-safe)."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        asyncio.ensure_future(coro)
-    else:
-        try:
-            main_loop = asyncio._get_running_loop()
-            if main_loop:
-                asyncio.run_coroutine_threadsafe(coro, main_loop)
-            else:
-                asyncio.run(coro)
-        except Exception:
-            asyncio.run(coro)
+    from chanakya.async_utils import run_async
+    run_async(coro)
 
 def _execute_telegram_text(user: dict, text: str) -> None:
     async def _send():

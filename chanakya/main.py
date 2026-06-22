@@ -81,6 +81,10 @@ async def lifespan(app: FastAPI):
             "in your .env file. Telegram requires a public HTTPS endpoint to deliver updates."
         )
 
+    # 0. Register the main event loop for all background thread → async dispatches
+    from chanakya.async_utils import set_main_loop
+    set_main_loop(asyncio.get_running_loop())
+
     # 1. Start Checkpoint runner
     start_runner()
     start_task_runner()
@@ -203,7 +207,14 @@ def create_fastapi_app() -> FastAPI:
         if not user:
             return {"response": "No active user found in Dharma database."}
 
-        response_text = await generic_process_message(user, text, channel="WEB")
+        try:
+            response_text = await asyncio.wait_for(
+                generic_process_message(user, text, channel="WEB"),
+                timeout=30.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("web_chat timed out after 30s for user %s", user.get("_id"))
+            response_text = "The response is taking longer than usual. Try again in a moment."
         return {"response": response_text}
 
     @app.get("/chat/history")
@@ -238,7 +249,14 @@ def create_fastapi_app() -> FastAPI:
             media_url = f"data:{mime};base64,{b64}"
 
         text = message or "[Image submitted for review]"
-        response_text = await generic_process_message(user, text, channel="WEB", media_url=media_url)
+        try:
+            response_text = await asyncio.wait_for(
+                generic_process_message(user, text, channel="WEB", media_url=media_url),
+                timeout=45.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("web_chat_image timed out after 45s for user %s", user.get("_id"))
+            response_text = "Image analysis is taking longer than usual. Try again in a moment."
         return {"response": response_text}
 
     @app.post("/")
