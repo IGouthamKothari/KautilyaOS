@@ -29,6 +29,10 @@ class ElevenLabsSynthesisError(Exception):
 _audio_cache: dict[str, tuple[bytes, float]] = {}
 _CACHE_TTL_SECONDS = 86400  # 24 hours
 
+# Circuit breaker — disabled after a payment/auth failure until this timestamp
+_disabled_until: float = 0.0
+_DISABLE_DURATION_SECONDS = 600  # 10 minutes
+
 
 # ---------------------------------------------------------------------------
 # Cache helpers
@@ -101,13 +105,28 @@ class ElevenLabsClient:
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
         }
 
+        # Circuit breaker — skip immediately if recently disabled by a 401/402
+        if time.time() < _disabled_until:
+            raise ElevenLabsSynthesisError(
+                "ElevenLabs disabled (payment issue) — circuit breaker active"
+            )
+
         try:
             response = httpx.post(url, json=payload, headers=headers, timeout=30.0)
             response.raise_for_status()
             audio_bytes = response.content
         except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in (401, 402, 403):
+                # Payment / auth failure — disable for 10 minutes to stop spam
+                global _disabled_until
+                _disabled_until = time.time() + _DISABLE_DURATION_SECONDS
+                logger.warning(
+                    "ElevenLabs %d (payment/auth) — disabling for %ds to prevent retry spam",
+                    status, _DISABLE_DURATION_SECONDS,
+                )
             raise ElevenLabsSynthesisError(
-                f"ElevenLabs API error {exc.response.status_code}: {exc.response.text[:200]}"
+                f"ElevenLabs API error {status}: {exc.response.text[:200]}"
             ) from exc
         except Exception as exc:
             raise ElevenLabsSynthesisError(

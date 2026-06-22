@@ -210,10 +210,10 @@ def create_fastapi_app() -> FastAPI:
         try:
             response_text = await asyncio.wait_for(
                 generic_process_message(user, text, channel="WEB"),
-                timeout=30.0,
+                timeout=60.0,
             )
         except asyncio.TimeoutError:
-            logger.warning("web_chat timed out after 30s for user %s", user.get("_id"))
+            logger.warning("web_chat timed out after 60s for user %s", user.get("_id"))
             response_text = "The response is taking longer than usual. Try again in a moment."
         return {"response": response_text}
 
