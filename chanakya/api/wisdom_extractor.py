@@ -12,10 +12,6 @@ from __future__ import annotations
 import json
 import logging
 
-import httpx
-
-from chanakya.config import OPENAI_API_KEY, UTILITY_MODEL_NAME
-
 logger = logging.getLogger(__name__)
 
 _EXTRACTION_PROMPT = """You extract life principles from raw experiences, stories, and insights.
@@ -60,25 +56,16 @@ async def extract_principle(
         user_message += f"\nSuggested category: {hint_category}"
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": UTILITY_MODEL_NAME,
-                    "messages": [
-                        {"role": "system", "content": _EXTRACTION_PROMPT},
-                        {"role": "user", "content": user_message},
-                    ],
-                    "max_completion_tokens": 300,
-                    "temperature": 0.3,
-                },
-            )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"].strip()
+        from chanakya.agent.llm_provider import call_with_fallback
+        content = (await call_with_fallback(
+            messages=[
+                {"role": "system", "content": _EXTRACTION_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0.3,
+            max_tokens=300,
+            timeout=15.0,
+        )).strip()
 
             # Parse JSON from response
             result = _parse_extraction(content)

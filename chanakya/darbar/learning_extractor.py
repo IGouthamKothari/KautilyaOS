@@ -14,9 +14,6 @@ import json
 import logging
 from datetime import datetime, timedelta
 
-import httpx
-
-from chanakya.config import OPENAI_API_KEY, UTILITY_MODEL_NAME
 from chanakya.db.mongo import db, interaction_logs, users
 
 logger = logging.getLogger(__name__)
@@ -68,25 +65,16 @@ async def extract_learnings(user_id) -> dict | None:
     interaction_text = "\n".join(summaries)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": UTILITY_MODEL_NAME,
-                    "messages": [
-                        {"role": "system", "content": _EXTRACTION_PROMPT},
-                        {"role": "user", "content": interaction_text},
-                    ],
-                    "max_completion_tokens": 300,
-                    "temperature": 0.2,
-                },
-            )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"].strip()
+        from chanakya.agent.llm_provider import call_with_fallback
+        content = (await call_with_fallback(
+            messages=[
+                {"role": "system", "content": _EXTRACTION_PROMPT},
+                {"role": "user", "content": interaction_text},
+            ],
+            temperature=0.2,
+            max_tokens=300,
+            timeout=10.0,
+        )).strip()
 
             try:
                 data = json.loads(content)

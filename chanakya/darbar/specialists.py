@@ -21,7 +21,7 @@ from langchain_core.messages import (
 
 from chanakya.agent.council import COUNCIL_REGISTRY
 from chanakya.agent.privacy_scrubber import scrub_context, scrub_recursive, get_scrub_list
-from chanakya.config import OPENAI_API_KEY, LLM_MODEL_NAME
+from chanakya.config import OPENAI_API_KEY, OPENROUTER_API_KEY, LLM_MODEL_NAME
 from chanakya.darbar.state import DarbarState
 from chanakya.darbar.tool_registry import get_tools_for_specialist
 from chanakya.io_logger import Timer, log_llm
@@ -200,16 +200,32 @@ async def _invoke_council_specialist(state: DarbarState, user: dict) -> DarbarSt
         user_msg = HumanMessage(content=scrubbed_input)
     messages: list = [SystemMessage(content=system_prompt), user_msg]
 
-    # LLM with scoped tools
-    llm = ChatOpenAI(
-        api_key=OPENAI_API_KEY,
-        model=LLM_MODEL_NAME,
-        temperature=0.7,
-        max_completion_tokens=2048,
-    )
+    # LLM with scoped tools — OpenRouter primary, OpenAI fallback
+    _model = LLM_MODEL_NAME
+    if _model.startswith("openrouter/") and OPENROUTER_API_KEY:
+        llm = ChatOpenAI(
+            api_key=OPENROUTER_API_KEY,
+            base_url="https://openrouter.ai/api/v1",
+            model=_model[len("openrouter/"):],
+            temperature=0.7,
+            max_tokens=2048,
+            default_headers={
+                "HTTP-Referer": "https://chanakya.ai",
+                "X-Title": "Chanakya Dharma Engine",
+            },
+        )
+    else:
+        llm = ChatOpenAI(
+            api_key=OPENAI_API_KEY,
+            model=_model,
+            temperature=0.7,
+            max_completion_tokens=2048,
+        )
     llm_with_tools = llm.bind_tools(tools) if tools else llm
 
     _t = Timer()
+    _active_model = _model
+    _using_fallback = False
 
     # Tool calling loop (max 3 rounds for specialists)
     response = None
@@ -217,15 +233,25 @@ async def _invoke_council_specialist(state: DarbarState, user: dict) -> DarbarSt
         try:
             response = await llm_with_tools.ainvoke(messages)
             log_llm(
-                user_id_str, LLM_MODEL_NAME,
+                user_id_str, _active_model,
                 f"{specialist_id}:round{round_num}",
                 scrubbed_input[:100], (response.content or "")[:100],
                 latency_ms=_t.elapsed_ms(),
             )
         except Exception as exc:
+            err_str = str(exc)
+            is_rate_limit = any(c in err_str for c in ("429", "402", "503", "529", "rate_limit", "quota"))
+            if is_rate_limit and not _using_fallback:
+                logger.warning("Specialist %s primary LLM rate-limited — switching to gpt-4o-mini", specialist_id)
+                llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4o-mini", temperature=0.7, max_completion_tokens=2048)
+                llm_with_tools = llm.bind_tools(tools) if tools else llm
+                _active_model = "gpt-4o-mini"
+                _using_fallback = True
+                _t = Timer()
+                continue
             logger.error("Specialist %s round %d failed: %s", specialist_id, round_num, exc)
             state.specialist_response = "The council member's mind is clouded. Try again."
-            state.model_used = LLM_MODEL_NAME
+            state.model_used = _active_model
             return state
 
         if not response.tool_calls:
@@ -241,7 +267,7 @@ async def _invoke_council_specialist(state: DarbarState, user: dict) -> DarbarSt
     # Extract response
     final_text = response.content if response else ""
     state.specialist_response = final_text or "The specialist provided no response."
-    state.model_used = LLM_MODEL_NAME
+    state.model_used = _active_model
     state.tone = "MENTOR"
     state.verdict = None
 

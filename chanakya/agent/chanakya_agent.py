@@ -35,7 +35,7 @@ from chanakya.agent.privacy_scrubber import (
     scrub_recursive,
     unscrub_response,
 )
-from chanakya.config import OPENAI_API_KEY, LLM_MODEL_NAME, UTILITY_MODEL_NAME
+from chanakya.config import OPENAI_API_KEY, OPENROUTER_API_KEY, LLM_MODEL_NAME, UTILITY_MODEL_NAME
 from chanakya.io_logger import Timer, log_llm
 from chanakya.models.llm_decision import ActionItem, LLMDecision
 from chanakya.tools.schedule_tools import ALL_TOOLS
@@ -51,9 +51,25 @@ UTILITY_MODEL = UTILITY_MODEL_NAME
 
 _TOOL_MAP = {t.name: t for t in ALL_TOOLS}
 
+# OpenRouter strip prefix for LangChain usage
+_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+_OPENROUTER_HEADERS = {
+    "HTTP-Referer": "https://chanakya.ai",
+    "X-Title": "Chanakya Dharma Engine",
+}
+
 
 def _make_llm(model: str = MODEL) -> ChatOpenAI:
-    """Create a ChatOpenAI instance with tool calling support."""
+    """Create a ChatOpenAI instance — uses OpenRouter if model has 'openrouter/' prefix."""
+    if model.startswith("openrouter/") and OPENROUTER_API_KEY:
+        return ChatOpenAI(
+            api_key=OPENROUTER_API_KEY,
+            base_url=_OPENROUTER_BASE,
+            model=model[len("openrouter/"):],
+            temperature=0.7,
+            max_tokens=4096,
+            default_headers=_OPENROUTER_HEADERS,
+        )
     return ChatOpenAI(
         api_key=OPENAI_API_KEY,
         model=model,
@@ -62,8 +78,27 @@ def _make_llm(model: str = MODEL) -> ChatOpenAI:
     )
 
 
+def _make_fallback_llm() -> ChatOpenAI:
+    """OpenAI gpt-4o-mini — used when OpenRouter is rate-limited."""
+    return ChatOpenAI(
+        api_key=OPENAI_API_KEY,
+        model="gpt-4o-mini",
+        temperature=0.7,
+        max_completion_tokens=4096,
+    )
+
+
 def _make_utility_llm() -> ChatOpenAI:
     """Create a cheap LLM for utility tasks (summarization)."""
+    if UTILITY_MODEL.startswith("openrouter/") and OPENROUTER_API_KEY:
+        return ChatOpenAI(
+            api_key=OPENROUTER_API_KEY,
+            base_url=_OPENROUTER_BASE,
+            model=UTILITY_MODEL[len("openrouter/"):],
+            temperature=0.3,
+            max_tokens=500,
+            default_headers=_OPENROUTER_HEADERS,
+        )
     return ChatOpenAI(
         api_key=OPENAI_API_KEY,
         model=UTILITY_MODEL,
@@ -879,22 +914,34 @@ class ChanakyaAgent:
         model_used: str = MODEL
         llm = _make_llm()
         llm_with_tools = llm.bind_tools(ALL_TOOLS)
+        _using_fallback = False
 
         _t = Timer()
 
         for round_num in range(1, 6):
             try:
                 response = await llm_with_tools.ainvoke(messages)
-                _log_llm_attempt(user, MODEL, interaction_type, "success")
+                _log_llm_attempt(user, model_used, interaction_type, "success")
                 log_llm(
-                    str(user.get("_id")), MODEL,
+                    str(user.get("_id")), model_used,
                     f"{interaction_type}:round{round_num}",
                     scrubbed_input[:200], (response.content or "")[:200],
                     latency_ms=_t.elapsed_ms(),
                 )
             except Exception as exc:
+                err_str = str(exc)
+                # On rate-limit / quota, switch to fallback once then retry
+                is_rate_limit = any(c in err_str for c in ("429", "402", "503", "529", "rate_limit", "quota"))
+                if is_rate_limit and not _using_fallback:
+                    logger.warning("Primary LLM rate-limited — switching to gpt-4o-mini fallback")
+                    llm = _make_fallback_llm()
+                    llm_with_tools = llm.bind_tools(ALL_TOOLS)
+                    model_used = "gpt-4o-mini"
+                    _using_fallback = True
+                    _t = Timer()
+                    continue
                 logger.error("LLM round %d failed for user %s: %s", round_num, user.get("_id"), exc)
-                _log_llm_attempt(user, MODEL, interaction_type, str(exc))
+                _log_llm_attempt(user, model_used, interaction_type, err_str)
                 return None
 
             # Check for tool calls

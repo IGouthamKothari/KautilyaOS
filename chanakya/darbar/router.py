@@ -169,8 +169,6 @@ def _is_checkpoint_response(user: dict) -> bool:
 
 async def _llm_route(text: str, user: dict) -> dict | None:
     """Use nano model for intent classification when fast-path doesn't match."""
-    from chanakya.config import OPENAI_API_KEY, UTILITY_MODEL_NAME
-
     user_context = (
         f"User: {user.get('name', 'User')}, "
         f"mode: {user.get('current_mode', 'NORMAL')}, "
@@ -179,25 +177,16 @@ async def _llm_route(text: str, user: dict) -> dict | None:
     )
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": UTILITY_MODEL_NAME,
-                    "messages": [
-                        {"role": "system", "content": _ROUTER_SYSTEM_PROMPT},
-                        {"role": "user", "content": f"Context: {user_context}\nMessage: {text}"},
-                    ],
-                    "max_completion_tokens": 150,
-                    "temperature": 0.1,
-                },
-            )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"].strip()
+        from chanakya.agent.llm_provider import call_with_fallback
+        content = (await call_with_fallback(
+            messages=[
+                {"role": "system", "content": _ROUTER_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Context: {user_context}\nMessage: {text}"},
+            ],
+            temperature=0.1,
+            max_tokens=150,
+            timeout=5.0,
+        )).strip()
 
             # Parse JSON
             try:

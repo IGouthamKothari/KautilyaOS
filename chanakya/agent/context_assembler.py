@@ -191,23 +191,13 @@ async def update_conversation_context(
     )
 
     try:
-        from chanakya.config import OPENAI_API_KEY, UTILITY_MODEL_NAME
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": UTILITY_MODEL_NAME,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_completion_tokens": 120,
-                    "temperature": 0.3,
-                },
-            )
-            resp.raise_for_status()
-            new_summary = resp.json()["choices"][0]["message"]["content"].strip()
+        from chanakya.agent.llm_provider import call_with_fallback
+        new_summary = (await call_with_fallback(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=120,
+            timeout=10.0,
+        )).strip()
             
             # Privacy: Re-identify names before storing in our private DB
             new_summary = unscrub_response(new_summary, user["_id"])

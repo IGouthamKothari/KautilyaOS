@@ -123,9 +123,6 @@ async def process(
 
 async def _synthesize(state: DarbarState, user: dict) -> DarbarState:
     """Rewrite specialist output in Chanakya's voice (nano model)."""
-    import httpx
-    from chanakya.config import OPENAI_API_KEY, UTILITY_MODEL_NAME
-
     name = user.get("name", "the user")
     prompt = (
         f"You are Chanakya — the greatest guru. A specialist ({state.specialist}) has analyzed "
@@ -137,25 +134,16 @@ async def _synthesize(state: DarbarState, user: dict) -> DarbarState:
     )
 
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": UTILITY_MODEL_NAME,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_completion_tokens": 400,
-                    "temperature": 0.5,
-                },
-            )
-            resp.raise_for_status()
-            synthesized = resp.json()["choices"][0]["message"]["content"].strip()
-            if synthesized:
-                state.final_response = synthesized
-                return state
+        from chanakya.agent.llm_provider import call_with_fallback
+        synthesized = (await call_with_fallback(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5,
+            max_tokens=400,
+            timeout=8.0,
+        )).strip()
+        if synthesized:
+            state.final_response = synthesized
+            return state
     except Exception as exc:
         logger.warning("Synthesis failed (using raw specialist response): %s", exc)
 
@@ -170,9 +158,6 @@ async def _synthesize(state: DarbarState, user: dict) -> DarbarState:
 
 async def _dharma_gate(state: DarbarState, user: dict) -> DarbarState:
     """Quick quality check: is the response too soft, off-topic, or contradictory?"""
-    import httpx
-    from chanakya.config import OPENAI_API_KEY, UTILITY_MODEL_NAME
-
     response_to_check = state.final_response or state.specialist_response
     if len(response_to_check) < 50:
         state.gate_passed = True
@@ -190,22 +175,13 @@ async def _dharma_gate(state: DarbarState, user: dict) -> DarbarState:
     )
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": UTILITY_MODEL_NAME,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_completion_tokens": 100,
-                    "temperature": 0.1,
-                },
-            )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"].strip()
+        from chanakya.agent.llm_provider import call_with_fallback
+        content = (await call_with_fallback(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=100,
+            timeout=5.0,
+        )).strip()
 
             import json
             try:

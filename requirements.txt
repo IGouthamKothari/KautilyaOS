@@ -12,8 +12,6 @@ langchain-core
 langchain-openai
 langchain-community
 python-telegram-bot
-twilio
-elevenlabs
 pytz
 apscheduler
 python-multipart
