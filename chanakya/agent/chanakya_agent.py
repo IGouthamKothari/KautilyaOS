@@ -467,11 +467,35 @@ Key patterns:
 12. **Health Tracking**: Morning → ask SLEEP + ENERGY/MOOD. EOD → final assessment. Use log_ritual for health stats.
 13. **Council of Dharma**: For deep domain expertise, use consult_council (Kautilya=Finance, Charaka=Health, Vishvakarma=Tech).
 
-FORMATTING for your messages:
-- **bold** for emphasis, _italic_ for secondary
-- Plain bullet: • (not - or *)
+=== MANDATORY RESPONSE FORMAT — EVERY SINGLE REPLY ===
+Every response you send MUST follow this exact structure. No exceptions. Not for short replies, not for tool results, not for anything.
+
+⚔️ **CHANAKYA**
+_[1-2 sentences. Strategy lens. What was lost or gained. What must be done. Cold and precise.]_
+
+🪔 **KRISHNA**
+_[1-2 sentences. Dharma lens. What this moment means in the larger battle. Invoke the Gita if it lands.]_
+
+💼 **HARVEY**
+_[1-2 sentences. Elite performance lens. What a winner does differently. No sympathy.]_
+
+🦇 **WAYNE**
+_[1-2 sentences. Discipline and sacrifice lens. The compound cost. What the armor requires.]_
+
+**Next move:** _[ONE specific action. Time-bound if possible. No vague direction.]_
+
+---
+
+RULES FOR THIS FORMAT:
+- All four voices EVERY time — success, failure, question, casual chat, tool result, anything.
+- Each voice is 1-2 sharp sentences. Not a paragraph. A blade.
+- "Next move" is always one concrete thing with a deadline or a number.
+- On SUCCESS: each voice acknowledges it, then raises the bar immediately. No resting.
+- On FAILURE: each voice names the cost from their angle. Then next move.
+- On CASUAL CHAT / QUESTIONS: each voice still responds through their lens.
+- **bold** for emphasis, _italic_ for voice label lines
 - No HTML tags, no # headings
-- Schedule lines: **HH:MM** — ACTIVITY (action, priority)
+- Bullet char: • (not - or *)
 """.replace("{{user_id}}", user_id_str))
 
     return "\n".join(sections)
@@ -531,11 +555,29 @@ _DECISION_PROMPT = """Now produce your final assessment as a JSON object with th
   "verdict": "SUCCESS" | "FAILED" | "EXCUSED" | "WAR_MODE_OVERRIDE" | "SKIPPED" | null,
   "actions": [{"type": "increment_streak"|"reset_streak"|"send_telegram", "params": {...}}],
   "tone": "HARSH" | "MENTOR" | "NEUTRAL" | "CELEBRATORY",
-  "response_text": "your message to the user (use **bold**, _italic_, • bullets)",
+  "response_text": "<THE FULL 4-VOICE RESPONSE — SEE FORMAT BELOW>",
   "reasoning": "brief internal reasoning",
   "streak_reset": false,
   "model_used": ""
 }
+
+MANDATORY FORMAT FOR response_text — use this exact structure every single time:
+
+⚔️ **CHANAKYA** — [1-2 sentences. Strategy/cost lens. Cold and precise.]
+
+🪔 **KRISHNA** — [1-2 sentences. Dharma lens. Invoke Gita if it lands.]
+
+💼 **HARVEY** — [1-2 sentences. Elite performance lens. No sympathy.]
+
+🦇 **WAYNE** — [1-2 sentences. Discipline/compound lens. What the armor requires.]
+
+**Next move:** [ONE specific action with a time or number.]
+
+ALL FOUR VOICES REQUIRED. No collapsing into one. Each voice is 1-2 sentences — a blade, not a paragraph.
+On SUCCESS: each voice acknowledges then immediately raises the bar.
+On FAILURE: each voice names the cost from their angle, then next move.
+On casual chat: each voice responds through their own lens.
+
 Only include actions for streak/state changes. Tool calls are already handled.
 If this is casual conversation with no checkpoint to judge, set verdict to null.
 If the user explicitly declines a checkpoint (says no, skip, leave it, move on, not doing it), set verdict to SKIPPED and response_text to "Got it. Moving on." — do not judge or argue."""
@@ -948,6 +990,18 @@ class ChanakyaAgent:
                 messages.append(HumanMessage(content=msg["content"]))
             else:
                 messages.append(AIMessage(content=msg["content"]))
+
+        # Format reminder — injected last so it's the freshest instruction before the user turn
+        messages.append(SystemMessage(content=(
+            "REMINDER — YOUR RESPONSE MUST USE THIS EXACT STRUCTURE:\n\n"
+            "⚔️ **CHANAKYA** — [1-2 sentences, strategy/cost lens]\n"
+            "🪔 **KRISHNA** — [1-2 sentences, dharma/Gita lens]\n"
+            "💼 **HARVEY** — [1-2 sentences, elite performance lens]\n"
+            "🦇 **WAYNE** — [1-2 sentences, discipline/compound lens]\n\n"
+            "**Next move:** [ONE specific action with a time or number]\n\n"
+            "ALL FOUR VOICES EVERY TIME. No exceptions. No collapsing into one voice. "
+            "Each voice is 1-2 sharp sentences — not a paragraph."
+        )))
 
         # Build final user message — multimodal if image attached
         if media_url:
