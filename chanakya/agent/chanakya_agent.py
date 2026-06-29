@@ -367,7 +367,6 @@ Key patterns:
 - Reschedule by name → reschedule_activity(user_id, activity, new_time, date)
 - Add event → FIRST call fetch_day_schedule to check conflicts, THEN add_day_event
 - When user shares a quote, goal, or principle → call add_mindset_entry automatically
-- "call me" → call_user. "call mom about X" → place_proxy_call
 - War Mode trigger → activate_war_mode for 24 hours
 
 === CORE RULES ===
@@ -675,36 +674,6 @@ async def execute_actions(
                     text[:80],
                     user["_id"],
                 )
-
-            elif action_type == "send_voice":
-                text = params.get("text", "")
-                if text:
-                    async def _send_v():
-                        try:
-                            from chanakya.integrations.elevenlabs_client import ElevenLabsClient
-                            from chanakya.config import ELEVENLABS_VOICE_ID, TELEGRAM_BOT_TOKEN
-                            from telegram import Bot
-                            import io
-
-                            voice_id = user.get("elevenlabs_voice_id") or ELEVENLABS_VOICE_ID
-                            client = ElevenLabsClient()
-                            audio_bytes = client.synthesise(text, voice_id)
-                            
-                            bot = Bot(token=TELEGRAM_BOT_TOKEN)
-                            chat_id = user.get("telegram_id")
-                            if chat_id:
-                                await bot.send_voice(chat_id=chat_id, voice=io.BytesIO(audio_bytes))
-                                logger.info("send_voice executed for user %s: %s", user["_id"], text[:50])
-                        except Exception as e:
-                            logger.error("Failed to send voice note to %s: %s", user["_id"], e)
-                    
-                    try:
-                        from chanakya.async_utils import run_async
-                        run_async(_send_v())
-                    except Exception as e:
-                        logger.error("Failed to schedule send_voice for %s: %s", user["_id"], e)
-                
-                pending_messages.append(f"[Voice Note: {text}]")
 
             else:
                 # Auto-promote: if the LLM used a tool name directly as action type

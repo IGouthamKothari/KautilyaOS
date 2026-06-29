@@ -12,7 +12,6 @@ Executes every 60 seconds. For each active user:
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import time
 from datetime import datetime, timedelta
@@ -349,13 +348,8 @@ def _fire_checkpoint(user: dict, cp: dict) -> None:
         "ai_evaluation": {"verdict": None}, "created_at": now
     }).inserted_id
 
-    call_sid = None
-    if action_type == "CALL": call_sid = _execute_call_action(user, cp, rendered_prompt, log_id)
-    elif action_type == "TELEGRAM_TEXT": _execute_telegram_text(user, rendered_prompt)
-    elif action_type == "TELEGRAM_VOICE": _execute_telegram_voice(user, cp, rendered_prompt)
-    elif action_type == "IMAGE_DEMAND": _execute_telegram_text(user, rendered_prompt)
-    else:
-        logger.warning("Unknown action_type %r for checkpoint %s", action_type, cp["_id"])
+    # All checkpoints deliver via Telegram text (CALL and TELEGRAM_VOICE removed)
+    _execute_telegram_text(user, rendered_prompt)
 
     # Schedule engagement nudge only for checkpoints that expect a response
     expects_response = cp.get("expects_response", True) and not cp.get("is_daily_event", False)
@@ -369,8 +363,6 @@ def _fire_checkpoint(user: dict, cp: dict) -> None:
         de_col.update_one({"_id": cp["_id"]}, {"$set": {"fired": True, "fired_at": now}})
     else:
         cp_col.update_one({"_id": cp["_id"]}, {"$set": {"last_triggered": now}})
-    if call_sid and log_id:
-        interaction_logs.update_one({"_id": log_id}, {"$set": {"twilio_call_sid": call_sid}})
 
 def _run_async(coro):
     """Run a coroutine from a sync background thread (thread-safe)."""
@@ -384,25 +376,3 @@ def _execute_telegram_text(user: dict, text: str) -> None:
         await Bot(token=TELEGRAM_BOT_TOKEN).send_message(chat_id=user["telegram_id"], text=text)
     _run_async(_send())
 
-def _execute_telegram_voice(user: dict, cp: dict, text: str) -> None:
-    from chanakya.integrations.elevenlabs_client import ElevenLabsClient
-    voice_id = user.get("elevenlabs_voice_id")
-    if not voice_id: _execute_telegram_text(user, text); return
-    try:
-        audio = ElevenLabsClient().synthesise(text, voice_id)
-        async def _send():
-            from telegram import Bot
-            from chanakya.config import TELEGRAM_BOT_TOKEN
-            await Bot(token=TELEGRAM_BOT_TOKEN).send_voice(chat_id=user["telegram_id"], voice=io.BytesIO(audio))
-        _run_async(_send())
-    except: _execute_telegram_text(user, text)
-
-def _execute_call_action(user: dict, cp: dict, text: str, log_id) -> str | None:
-    from chanakya.config import WEBHOOK_URL
-    from chanakya.integrations.twilio_client import TwilioClient
-    from chanakya.integrations.twilio_webhooks import create_voice_session, synthesize_call_opening
-    if not WEBHOOK_URL or not user.get("phone"): _execute_telegram_text(user, text); return None
-    phone = user["phone"] if user["phone"].startswith("+") else "+91" + user["phone"]
-    if log_id: create_voice_session(str(log_id), str(user["_id"]), text, user.get("conversation_context", ""), synthesize_call_opening(text))
-    try: return TwilioClient().make_call(to=phone, twiml_url=f"{WEBHOOK_URL.rstrip('/')}/twilio/voice/{log_id}")
-    except: _execute_telegram_text(user, text); return None

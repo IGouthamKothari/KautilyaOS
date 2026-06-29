@@ -319,33 +319,22 @@ def should_fire_checkin(user: dict) -> bool:
 
 
 async def fire_checkin(user: dict) -> None:
-    """
-    Fire a random mentor check-in as a two-way voice call.
-
-    If the user has no phone number or WEBHOOK_URL is not set, falls back
-    to a Telegram text message so the check-in is never silently dropped.
-    """
+    """Fire a random mentor check-in via Telegram text."""
     from chanakya.agent.chanakya_agent import ChanakyaAgent, execute_actions
-    from chanakya.config import WEBHOOK_URL
     from chanakya.db.mongo import interaction_logs
     from chanakya.scheduler.checkpoint_runner import _execute_telegram_text
 
     if not should_fire_checkin(user):
         return
 
-    phone = user.get("phone", "")
     activity_slot = user.get("current_activity", "FREE_TIME")
 
-    # ------------------------------------------------------------------
-    # Step 1: Ask the agent to generate a conversational opening
-    # ------------------------------------------------------------------
     agent = ChanakyaAgent(user)
     decision = await agent.invoke(
         raw_input=(
-            f"Initiate a brief two-way mentor check-in call. "
+            f"Initiate a brief mentor check-in message. "
             f"Current activity: {activity_slot}. "
-            "Generate a short opening (2-3 sentences) that starts a real conversation — "
-            "ask one sharp question about what the user is doing or thinking right now."
+            "Write 2-3 sentences — ask one sharp question about what the user is doing or thinking right now."
         ),
         interaction_type="CHECK_IN",
     )
@@ -361,74 +350,23 @@ async def fire_checkin(user: dict) -> None:
 
     execute_actions(decision.actions, user, log_id=None, decision=decision)
 
-    # ------------------------------------------------------------------
-    # Step 2: Log the check-in interaction
-    # ------------------------------------------------------------------
     now = datetime.utcnow()
-    log_doc = {
-        "user_id": user["_id"],
-        "checkpoint_id": None,
-        "timestamp": now,
-        "trigger_type": "REACTIVE",
-        "channel": "CALL" if (phone and WEBHOOK_URL) else "TELEGRAM",
-        "message_sent": opening_text,
-        "checkin_topic": activity_slot,
-        "ai_evaluation": {"verdict": None, "confidence": None, "reasoning": None},
-        "created_at": now,
-    }
     try:
-        log_result = interaction_logs.insert_one(log_doc)
-        session_id = str(log_result.inserted_id)
+        interaction_logs.insert_one({
+            "user_id": user["_id"],
+            "checkpoint_id": None,
+            "timestamp": now,
+            "trigger_type": "REACTIVE",
+            "channel": "TELEGRAM",
+            "message_sent": opening_text,
+            "checkin_topic": activity_slot,
+            "ai_evaluation": {"verdict": None, "confidence": None, "reasoning": None},
+            "created_at": now,
+        })
     except Exception as exc:
-        logger.error(
-            "Failed to insert check-in log for user %s: %s", user["_id"], exc
-        )
-        _execute_telegram_text(user, opening_text)
-        return
+        logger.error("Failed to insert check-in log for user %s: %s", user["_id"], exc)
 
-    # ------------------------------------------------------------------
-    # Step 3: Place two-way call if possible, else fall back to Telegram
-    # ------------------------------------------------------------------
-    if not phone or not WEBHOOK_URL:
-        logger.info(
-            "No phone/WEBHOOK_URL for user %s — sending check-in as Telegram text.",
-            user["_id"],
-        )
-        _execute_telegram_text(user, opening_text)
-        return
-
-    from chanakya.integrations.twilio_client import TwilioClient, TwilioError
-    from chanakya.integrations.twilio_webhooks import create_voice_session, synthesize_call_opening
-
-    create_voice_session(
-        session_id=session_id,
-        user_id=str(user["_id"]),
-        context=opening_text,
-        conversation_context=user.get("conversation_context") or "",
-        audio_bytes=synthesize_call_opening(opening_text),
-    )
-
-    twiml_url = f"{WEBHOOK_URL.rstrip('/')}/twilio/voice/{session_id}"
-    try:
-        twilio = TwilioClient()
-        call_sid = twilio.make_call(to=phone, twiml_url=twiml_url)
-        interaction_logs.update_one(
-            {"_id": log_result.inserted_id},
-            {"$set": {"twilio_call_sid": call_sid}},
-        )
-        logger.info(
-            "Random check-in call placed for user %s, session=%s, sid=%s",
-            user["_id"],
-            session_id,
-            call_sid,
-        )
-    except TwilioError as exc:
-        logger.warning(
-            "Check-in call failed for user %s: %s — falling back to Telegram text.",
-            user["_id"],
-            exc,
-        )
-        _execute_telegram_text(user, opening_text)
+    _execute_telegram_text(user, opening_text)
 
 
 # ---------------------------------------------------------------------------

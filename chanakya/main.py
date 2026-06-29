@@ -17,7 +17,6 @@ from fastapi.staticfiles import StaticFiles
 from telegram import Update
 
 from chanakya.config import HOST, PORT, TELEGRAM_BOT_TOKEN, WEBHOOK_URL
-from chanakya.integrations.twilio_webhooks import router as twilio_router
 from chanakya.io_logger import log_input
 from chanakya.scheduler.checkpoint_runner import start_runner, stop_runner
 from chanakya.scheduler.task_runner import start_task_runner, stop_task_runner
@@ -142,16 +141,8 @@ async def lifespan(app: FastAPI):
 
 
 def create_fastapi_app() -> FastAPI:
-    """Create and configure the FastAPI application.
-
-    Mounts:
-      GET  /health              — health check
-      POST /twilio/status       — Twilio call status callback
-      GET  /twilio/twiml/{id}   — TwiML response
-      POST /telegram            — Telegram webhook endpoint
-    """
+    """Create and configure the FastAPI application."""
     app = FastAPI(title="Chanakya Bot", version="1.0.0", lifespan=lifespan)
-    app.include_router(twilio_router)
     app.include_router(test_router)
     app.include_router(wisdom_router)
     app.include_router(goals_router)
@@ -189,9 +180,6 @@ def create_fastapi_app() -> FastAPI:
                 "streak": user.get("streak_count", 0) if user else 0,
                 "heartbeat": datetime.utcnow().isoformat()
             },
-            "twilio": {
-                "active": bool(os.getenv("TWILIO_ACCOUNT_SID"))
-            }
         }
 
     @app.post("/chat")

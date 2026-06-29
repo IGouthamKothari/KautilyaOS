@@ -658,94 +658,6 @@ def delete_contact(user_id: str, name: str) -> str:
     return result
 
 
-@tool
-def set_user_phone(user_id: str, phone: str) -> str:
-    """Set the user's own phone number for receiving Twilio calls.
-
-    phone must be E.164 format e.g. +919876543210.
-    Use when the user says:
-      "my number is +91XXXXXXXXXX"
-      "set my phone to +91XXXXXXXXXX"
-      "call me on +91XXXXXXXXXX"
-    """
-    if not re.match(r"^\+\d{7,15}$", phone.strip()):
-        return f"Error: phone must be E.164 format (e.g. +919876543210). Got {phone!r}."
-
-    try:
-        uid = ObjectId(user_id)
-    except Exception:
-        return f"Error: invalid user_id {user_id!r}."
-
-    users.update_one({"_id": uid}, {"$set": {"phone": phone.strip()}})
-    result = f"Your phone number set to {phone}. Chanakya will call you at this number."
-    _write_audit(uid, "set_user_phone", {"phone": phone}, result)
-    return result
-
-
-@tool
-def place_proxy_call(user_id: str, contact_name: str, topic: str) -> str:
-    """Place a call to one of the user's contacts on their behalf.
-
-    Chanakya will call the contact, introduce itself as calling on behalf of the user,
-    discuss the topic, and send a summary back to the user via Telegram.
-
-    Use when the user says things like:
-      "call mom and ask what's for dinner"
-      "call bro about the weekend plan"
-      "ask my boss about the meeting time"
-    """
-    try:
-        uid = ObjectId(user_id)
-    except Exception:
-        return f"Error: invalid user_id {user_id!r}."
-
-    from chanakya.db.mongo import get_contact_by_name, users as users_col, interaction_logs, proxy_call_logs
-    from chanakya.config import WEBHOOK_URL
-
-    user_doc = users_col.find_one({"_id": uid})
-    if not user_doc:
-        return f"Error: user not found."
-
-    contact = get_contact_by_name(uid, contact_name)
-    if not contact:
-        return (
-            f"No contact named '{contact_name}' found. "
-            f"Ask the user to share {contact_name}'s phone number first."
-        )
-
-    phone = contact.get("phone", "")
-    if not phone:
-        return f"Contact '{contact_name}' has no phone number saved."
-
-    if not WEBHOOK_URL:
-        return "Error: WEBHOOK_URL not configured — cannot place call."
-
-    owner_name = user_doc.get("name", "Goutham")
-    owner_telegram_id = user_doc.get("telegram_id", "")
-
-    # Insert task for Task Manager to pick up
-    from chanakya.db.mongo import agent_tasks
-    task_doc = {
-        "user_id": uid,
-        "task_type": "PROXY_CALL",
-        "payload": {"contact_name": contact_name, "topic": topic},
-        "status": "PENDING",
-        "retries_attempted": 0,
-        "max_retries": 3,
-        "created_at": datetime.utcnow()
-    }
-    
-    try:
-        agent_tasks.insert_one(task_doc)
-        result = (
-            f"Proxy call to {contact['name']} ({phone}) has been assigned to the Task Manager. "
-            f"Topic: {topic}. You'll receive a summary when the task completes. "
-            f"If it fails, it will be automatically retried."
-        )
-        _write_audit(uid, "place_proxy_call", {"contact": contact_name, "topic": topic}, result)
-        return result
-    except Exception as exc:
-        return f"Failed to assign task: {exc}"
 
 
 @tool
@@ -1030,89 +942,6 @@ def reload_prompt_templates(user_id: str) -> str:
     return result
 
 
-@tool
-def call_user(user_id: str) -> str:
-    """Place an on-demand voice call to the user (Chanakya calls them).
-
-    Use when the user says:
-      "call me"
-      "give me a call"
-      "I want to talk"
-    The call will use the phone number stored in the user's profile.
-    Returns a status string — the actual call is placed asynchronously.
-    """
-    try:
-        uid = ObjectId(user_id)
-    except Exception:
-        return f"Error: invalid user_id {user_id!r}."
-
-    user_doc = users.find_one({"_id": uid})
-    if not user_doc:
-        return "Error: user not found."
-
-    phone = user_doc.get("phone", "")
-    if not phone:
-        return (
-            "No phone number on file. "
-            "Tell me your number first: \"my number is +91XXXXXXXXXX\""
-        )
-
-    from chanakya.config import WEBHOOK_URL
-    if not WEBHOOK_URL:
-        return "Error: WEBHOOK_URL not configured — cannot place call."
-
-    # Build a context-aware opening
-    from chanakya.agent.context_assembler import ContextAssembler
-    try:
-        assembler = ContextAssembler()
-        # ContextAssembler.build is async — run it safely from this sync context
-        try:
-            _loop = asyncio.get_running_loop()
-        except RuntimeError:
-            _loop = None
-
-        if _loop is not None and _loop.is_running():
-            # We're inside an async context — can't use asyncio.run(), use a thread
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, assembler.build(user_doc, "MENTOR_TALK", None))
-                ctx = future.result(timeout=5)
-        else:
-            ctx = asyncio.run(assembler.build(user_doc, "MENTOR_TALK", None))
-
-        tier1 = ctx.get("tier1") or {}
-        opening_text = (
-            f"Chanakya here. Your streak is {tier1.get('streak_count', 0)} days. "
-            f"Mode: {tier1.get('current_mode', 'NORMAL')}. What do you need to discuss?"
-        )
-    except Exception:
-        opening_text = (
-            f"Chanakya here. Streak: {user_doc.get('streak_count', 0)} days. "
-            "What do you need to discuss?"
-        )
-
-    from datetime import datetime as _dt
-    from chanakya.db.mongo import agent_tasks
-    task_doc = {
-        "user_id": uid,
-        "task_type": "CALL_USER",
-        "payload": {"opening_text": opening_text},
-        "status": "PENDING",
-        "retries_attempted": 0,
-        "max_retries": 3,
-        "created_at": _dt.utcnow()
-    }
-
-    try:
-        agent_tasks.insert_one(task_doc)
-        result = (
-            "Chanakya is initiating your call. You'll receive it on your registered number shortly. "
-            "The task has been assigned to the Task Manager for reliable execution."
-        )
-        _write_audit(uid, "call_user", {"phone": phone}, result)
-        return result
-    except Exception as exc:
-        return f"Failed to initiate call task: {exc}"
 
 
 @tool
@@ -1953,8 +1782,6 @@ ALL_TOOLS = [
     save_contact,
     list_contacts,
     delete_contact,
-    place_proxy_call,
-    set_user_phone,
     get_user_status,
     add_mindset_note,
     add_mindset_entry,
@@ -1963,7 +1790,6 @@ ALL_TOOLS = [
     clear_mindset_notes,
     set_morning_todo_time,
     reload_prompt_templates,
-    call_user,
     fetch_day_schedule,
     add_day_event,
     update_day_event,

@@ -1,26 +1,18 @@
 """
 config.py — Application configuration.
 
-Loads environment variables from a .env file using python-dotenv and exposes
-them as module-level constants.  All required variables are validated at import
-time; a single ValueError is raised listing every missing variable so the
-operator can fix them all in one go.
-
 Required variables
 ------------------
 TELEGRAM_BOT_TOKEN   — python-telegram-bot authentication token
 MONGODB_URI          — MongoDB Atlas connection string (mongodb+srv://...)
-OPENROUTER_API_KEY   — OpenRouter API key for LLM access
-TWILIO_ACCOUNT_SID   — Twilio account SID
-TWILIO_AUTH_TOKEN    — Twilio auth token
-TWILIO_PHONE_NUMBER  — Twilio outbound phone number (E.164 format)
-ELEVENLABS_API_KEY   — ElevenLabs API key for TTS synthesis
+OPENAI_API_KEY       — OpenAI API key for LLM access
 
 Optional variables (with defaults)
 -----------------------------------
 LOG_LEVEL            — Python logging level string (default: "INFO")
 HOST                 — Uvicorn bind host (default: "0.0.0.0")
 PORT                 — Uvicorn bind port (default: 8000)
+WEBHOOK_URL          — Public HTTPS URL for Telegram webhook (Render URL)
 """
 
 import logging
@@ -42,11 +34,6 @@ _REQUIRED_VARS = [
     "TELEGRAM_BOT_TOKEN",
     "MONGODB_URI",
     "OPENAI_API_KEY",
-    "TWILIO_ACCOUNT_SID",
-    "TWILIO_AUTH_TOKEN",
-    "TWILIO_PHONE_NUMBER",
-    "ELEVENLABS_API_KEY",
-    "ELEVENLABS_VOICE_ID",
 ]
 
 _missing = [var for var in _REQUIRED_VARS if not os.getenv(var)]
@@ -60,12 +47,7 @@ if _missing:
 TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
 MONGODB_URI: str = os.environ["MONGODB_URI"]
 OPENAI_API_KEY: str = os.environ["OPENAI_API_KEY"]
-OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")  # kept for backward compat
-TWILIO_ACCOUNT_SID: str = os.environ["TWILIO_ACCOUNT_SID"]
-TWILIO_AUTH_TOKEN: str = os.environ["TWILIO_AUTH_TOKEN"]
-TWILIO_PHONE_NUMBER: str = os.environ["TWILIO_PHONE_NUMBER"]
-ELEVENLABS_API_KEY: str = os.environ["ELEVENLABS_API_KEY"]
-ELEVENLABS_VOICE_ID: str = os.environ["ELEVENLABS_VOICE_ID"]
+OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
 
 # ---------------------------------------------------------------------------
 # Optional environment variables

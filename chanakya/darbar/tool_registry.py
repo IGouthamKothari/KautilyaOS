@@ -30,10 +30,7 @@ TOOL_ASSIGNMENTS: dict[str, list[str]] = {
         "save_contact",
         "list_contacts",
         "delete_contact",
-        "place_proxy_call",
-        "call_user",
         "send_telegram_message",
-        "set_user_phone",
         # Mode/Schedule management
         "activate_war_mode",
         "deactivate_war_mode",
