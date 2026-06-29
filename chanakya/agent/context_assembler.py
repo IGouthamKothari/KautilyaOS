@@ -198,12 +198,12 @@ async def update_conversation_context(
             max_tokens=120,
             timeout=10.0,
         )).strip()
-            
-            # Privacy: Re-identify names before storing in our private DB
-            new_summary = unscrub_response(new_summary, user["_id"])
-            
-            # Hard-cap to avoid drift
-            new_summary = new_summary[:_MAX_CONTEXT_CHARS]
+
+        # Privacy: Re-identify names before storing in our private DB
+        new_summary = unscrub_response(new_summary, user["_id"])
+
+        # Hard-cap to avoid drift
+        new_summary = new_summary[:_MAX_CONTEXT_CHARS]
 
         users_col.update_one(
             {"_id": user["_id"]},

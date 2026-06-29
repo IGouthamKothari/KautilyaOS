@@ -183,20 +183,20 @@ async def _dharma_gate(state: DarbarState, user: dict) -> DarbarState:
             timeout=5.0,
         )).strip()
 
-            import json
-            try:
-                result = json.loads(content)
-            except json.JSONDecodeError:
-                start = content.find("{")
-                end = content.rfind("}") + 1
-                if start >= 0 and end > start:
-                    result = json.loads(content[start:end])
-                else:
-                    state.gate_passed = True
-                    return state
-
-            if result.get("pass", True):
+        import json
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError:
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                result = json.loads(content[start:end])
+            else:
                 state.gate_passed = True
+                return state
+
+        if result.get("pass", True):
+            state.gate_passed = True
             else:
                 state.gate_passed = False
                 state.gate_issue = result.get("issue", "")

@@ -57,14 +57,15 @@ GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
 HOST: str = os.getenv("HOST", "0.0.0.0")
 PORT: int = int(os.getenv("PORT", "8000"))
-# Primary model: Gemini 2.5 Flash free via OpenRouter; falls back to gpt-4o-mini
-LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "openrouter/google/gemini-2.5-flash:free")
-UTILITY_MODEL_NAME: str = os.getenv("UTILITY_MODEL_NAME", "openrouter/google/gemini-2.5-flash:free")
+# Primary model for LangChain tool-calling (chanakya_agent + specialists)
+# call_with_fallback() uses Gemini native API first, then falls back here
+LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "gpt-4o-mini")
+UTILITY_MODEL_NAME: str = os.getenv("UTILITY_MODEL_NAME", "gpt-4o-mini")
 
-# Council Models (all routed through OpenRouter free tier with gpt-4o-mini fallback)
-KAUTILYA_MODEL: str = os.getenv("KAUTILYA_MODEL", "openrouter/google/gemini-2.5-flash:free")
-CHARAKA_MODEL: str = os.getenv("CHARAKA_MODEL", "openrouter/google/gemini-2.5-flash:free")
-VISHVAKARMA_MODEL: str = os.getenv("VISHVAKARMA_MODEL", "openrouter/google/gemini-2.5-flash:free")
+# Council Models
+KAUTILYA_MODEL: str = os.getenv("KAUTILYA_MODEL", "gpt-4o-mini")
+CHARAKA_MODEL: str = os.getenv("CHARAKA_MODEL", "gpt-4o-mini")
+VISHVAKARMA_MODEL: str = os.getenv("VISHVAKARMA_MODEL", "gpt-4o-mini")
 
 # Darbar Multi-Agent System
 DARBAR_ENABLED: bool = os.getenv("DARBAR_ENABLED", "false").lower() in ("true", "1", "yes")

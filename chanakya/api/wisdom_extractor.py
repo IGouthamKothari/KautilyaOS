@@ -67,10 +67,10 @@ async def extract_principle(
             timeout=15.0,
         )).strip()
 
-            # Parse JSON from response
-            result = _parse_extraction(content)
-            if result:
-                return result
+        # Parse JSON from response
+        result = _parse_extraction(content)
+        if result:
+            return result
 
     except Exception as exc:
         logger.warning("Principle extraction failed: %s", exc)

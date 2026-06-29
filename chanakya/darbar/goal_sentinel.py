@@ -88,17 +88,17 @@ async def check_goals(user_id) -> list[dict]:
             timeout=10.0,
         )).strip()
 
-            try:
-                data = json.loads(content)
-            except json.JSONDecodeError:
-                start = content.find("{")
-                end = content.rfind("}") + 1
-                if start >= 0 and end > start:
-                    data = json.loads(content[start:end])
-                else:
-                    return []
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                data = json.loads(content[start:end])
+            else:
+                return []
 
-            return data.get("neglected", [])
+        return data.get("neglected", [])
 
     except Exception as exc:
         logger.warning("Goal sentinel check failed for user %s: %s", user_id, exc)

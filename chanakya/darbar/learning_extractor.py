@@ -76,17 +76,17 @@ async def extract_learnings(user_id) -> dict | None:
             timeout=10.0,
         )).strip()
 
-            try:
-                data = json.loads(content)
-            except json.JSONDecodeError:
-                start = content.find("{")
-                end = content.rfind("}") + 1
-                if start >= 0 and end > start:
-                    data = json.loads(content[start:end])
-                else:
-                    return None
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                data = json.loads(content[start:end])
+            else:
+                return None
 
-            return data
+        return data
 
     except Exception as exc:
         logger.warning("Learning extraction failed for user %s: %s", user_id, exc)

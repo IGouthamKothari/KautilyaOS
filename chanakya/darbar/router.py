@@ -188,30 +188,30 @@ async def _llm_route(text: str, user: dict) -> dict | None:
             timeout=5.0,
         )).strip()
 
-            # Parse JSON
-            try:
-                data = json.loads(content)
-            except json.JSONDecodeError:
-                start = content.find("{")
-                end = content.rfind("}") + 1
-                if start >= 0 and end > start:
-                    data = json.loads(content[start:end])
-                else:
-                    return None
+        # Parse JSON
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                data = json.loads(content[start:end])
+            else:
+                return None
 
-            # Validate
-            valid_specialists = {"chanakya", "kautilya", "charaka", "vishvakarma"}
-            specialist = data.get("specialist", "chanakya")
-            if specialist not in valid_specialists:
-                specialist = "chanakya"
+        # Validate
+        valid_specialists = {"chanakya", "kautilya", "charaka", "vishvakarma"}
+        specialist = data.get("specialist", "chanakya")
+        if specialist not in valid_specialists:
+            specialist = "chanakya"
 
-            tier = data.get("context_tier_needed", 2)
-            if not isinstance(tier, int) or tier < 1 or tier > 4:
-                tier = 2
+        tier = data.get("context_tier_needed", 2)
+        if not isinstance(tier, int) or tier < 1 or tier > 4:
+            tier = 2
 
-            valid_urgency = {"low", "medium", "high", "critical"}
-            urgency = data.get("urgency", "medium")
-            if urgency not in valid_urgency:
+        valid_urgency = {"low", "medium", "high", "critical"}
+        urgency = data.get("urgency", "medium")
+        if urgency not in valid_urgency:
                 urgency = "medium"
 
             return {

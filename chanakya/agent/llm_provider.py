@@ -142,16 +142,7 @@ async def call_with_fallback(
 
     providers = []
 
-    if OPENROUTER_API_KEY:
-        providers.append({
-            "name": "OpenRouter/gemini-2.5-flash:free",
-            "fn": call_openrouter,
-            "kwargs": {
-                "model": "google/gemini-2.5-flash:free",
-                "api_key": OPENROUTER_API_KEY,
-            },
-        })
-
+    # Primary: native Gemini API (free tier via Google AI Studio key)
     if GEMINI_API_KEY:
         providers.append({
             "name": "Gemini native/gemini-2.5-flash",
